@@ -1,4 +1,4 @@
-package com.example.genionputtest
+﻿package com.example.genionputtest
 
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
@@ -21,13 +21,17 @@ import com.example.genionputtest.benchmark.LatencyTracker
 import com.example.genionputtest.inference.core.InferenceEngine
 import com.example.genionputtest.inference.core.InferenceOptions
 import com.example.genionputtest.inference.core.ModelAssetLoader
-import com.example.genionputtest.inference.postprocess.ClassificationPostprocessor
+import com.example.genionputtest.inference.postprocess.EmbeddingJsonStore
+import com.example.genionputtest.inference.postprocess.EmbeddingOutput
+import com.example.genionputtest.inference.postprocess.EmbeddingPostprocessor
 import com.example.genionputtest.inference.preprocess.InputImagePreprocessor
-import com.example.genionputtest.inference.spec.MobileNetSpec
+import com.example.genionputtest.inference.preprocess.InputTensorJsonStore
+import com.example.genionputtest.inference.spec.MobileClip2S0Spec
 import com.example.genionputtest.inference.spec.ModelSpec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.nio.MappedByteBuffer
 
 class MainActivity : AppCompatActivity() {
@@ -38,17 +42,18 @@ class MainActivity : AppCompatActivity() {
     private lateinit var resultView: TextView
     private lateinit var benchmarkView: TextView
     private lateinit var modelBuffer: MappedByteBuffer
-    private val modelSpec: ModelSpec = MobileNetSpec
+    private val modelSpec: ModelSpec = MobileClip2S0Spec
     private val inputImagePreprocessor = InputImagePreprocessor()
-    private val classificationPostprocessor = ClassificationPostprocessor(topK = 3)
-    private var labels: List<String> = emptyList()
+    private val inputTensorJsonStore = InputTensorJsonStore()
+    private val embeddingPostprocessor = EmbeddingPostprocessor(previewValueCount = 8)
+    private val embeddingJsonStore = EmbeddingJsonStore()
 
     private val pickImageLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) {
             appendStatus("Image selection canceled.")
             return@registerForActivityResult
         }
-        classifySelectedImage(uri)
+        runEmbeddingForSelectedImage(uri)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -60,12 +65,8 @@ class MainActivity : AppCompatActivity() {
             modelBuffer = withContext(Dispatchers.IO) {
                 ModelAssetLoader(assets).loadMapped(modelSpec.assetName)
             }
-            labels = withContext(Dispatchers.IO) {
-                loadLabels("ImageNetLabels.txt")
-            }
             appendStatus("Model loaded: ${modelSpec.assetName}")
-            appendStatus("Loaded ${labels.size} labels.")
-            appendStatus("Pick an image from the device to run classification.")
+            appendStatus("Pick an image from the device to run embedding inference.")
 
             appendStatus("Running CPU benchmark...")
             val cpuResult = withContext(Dispatchers.Default) {
@@ -113,12 +114,12 @@ class MainActivity : AppCompatActivity() {
 
         statusView = TextView(this).apply {
             textSize = 18f
-            text = "Preparing image classification..."
+            text = "Preparing embedding inference..."
         }
 
         resultView = TextView(this).apply {
             textSize = 16f
-            text = "Classification results will appear here."
+            text = "Embedding results will appear here."
         }
 
         benchmarkView = TextView(this).apply {
@@ -137,7 +138,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun classifySelectedImage(uri: Uri) {
+    private fun runEmbeddingForSelectedImage(uri: Uri) {
         lifecycleScope.launch {
             try {
                 appendStatus("Loading selected image...")
@@ -146,22 +147,26 @@ class MainActivity : AppCompatActivity() {
                 }
                 imageView.setImageBitmap(bitmap)
 
-                appendStatus("Running classification for selected image...")
-                val classification = withContext(Dispatchers.Default) {
-                    runClassification(bitmap)
+                appendStatus("Running embedding inference for selected image...")
+                val embeddingResult = withContext(Dispatchers.Default) {
+                    runEmbedding(bitmap)
                 }
 
-                resultView.text = formatClassificationSummary(
+                resultView.text = formatEmbeddingSummary(
                     sourceLabel = "selected image",
-                    labels = labels,
-                    predictions = classification.predictions,
-                    latencyBreakdown = classification.latencyBreakdown
-                )
-                appendStatus("Classification complete.")
+                    embedding = embeddingResult.embedding,
+                    latencyBreakdown = embeddingResult.latencyBreakdown
+                ) + "\nInput JSON: ${embeddingResult.inputJsonFile.absolutePath}" +
+                    "\nEmbedding JSON: ${embeddingResult.embeddingJsonFile.absolutePath}"
+                appendStatus("Input JSON saved: ${embeddingResult.inputJsonFile.absolutePath}")
+                appendStatus("Embedding JSON saved: ${embeddingResult.embeddingJsonFile.absolutePath}")
+                Log.i("GENIO_TEST", "Input JSON saved: ${embeddingResult.inputJsonFile.absolutePath}")
+                Log.i("GENIO_TEST", "Embedding JSON saved: ${embeddingResult.embeddingJsonFile.absolutePath}")
+                appendStatus("Embedding inference complete.")
             } catch (t: Throwable) {
-                Log.e("GENIO_TEST", "Image classification failed", t)
-                resultView.text = "Classification failed: ${t.javaClass.simpleName}"
-                appendStatus("Classification failed. Check logcat.")
+                Log.e("GENIO_TEST", "Embedding inference failed", t)
+                resultView.text = "Embedding inference failed: ${t.javaClass.simpleName}"
+                appendStatus("Embedding inference failed. Check logcat.")
             }
         }
     }
@@ -177,30 +182,28 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadLabels(assetName: String): List<String> {
-        return assets.open(assetName).bufferedReader().use { reader ->
-            reader.readLines()
-        }
-    }
-
-    private fun runClassification(bitmap: Bitmap): ClassificationResult {
+    private fun runEmbedding(bitmap: Bitmap): EmbeddingResult {
         val preprocess = LatencyTracker.measure {
             inputImagePreprocessor.preprocess(bitmap, modelSpec)
         }
+        val inputJsonFile = inputTensorJsonStore.write(filesDir, preprocess.value, modelSpec)
 
         InferenceEngine(modelBuffer).use { engine ->
             val inference = engine.run(preprocess.value.inputBuffer)
             val postprocess = LatencyTracker.measure {
-                classificationPostprocessor.fromOutput(inference.outputBuffer)
+                embeddingPostprocessor.fromOutput(inference.outputBuffer)
             }
+            val embeddingJsonFile = embeddingJsonStore.write(filesDir, postprocess.value)
 
-            return ClassificationResult(
-                predictions = postprocess.value.predictions,
+            return EmbeddingResult(
+                embedding = postprocess.value,
                 latencyBreakdown = LatencyBreakdown(
                     preprocessMs = preprocess.durationMs,
                     inferenceMs = inference.inferenceMs,
                     postprocessMs = postprocess.durationMs
-                )
+                ),
+                inputJsonFile = inputJsonFile,
+                embeddingJsonFile = embeddingJsonFile
             )
         }
     }
@@ -216,7 +219,7 @@ class MainActivity : AppCompatActivity() {
 
             val avgMs = engine.benchmark(
                 warmupRuns = 5,
-                runs = 50,
+                runs = runs,
                 inputBuffer = engine.createBenchmarkInput()
             )
             val result = formatBenchmarkStatus(tag = tag, avgMs = avgMs, runs = runs)
@@ -237,7 +240,9 @@ class MainActivity : AppCompatActivity() {
     }
 }
 
-private data class ClassificationResult(
-    val predictions: List<Prediction>,
-    val latencyBreakdown: LatencyBreakdown
+private data class EmbeddingResult(
+    val embedding: EmbeddingOutput,
+    val latencyBreakdown: LatencyBreakdown,
+    val inputJsonFile: File,
+    val embeddingJsonFile: File
 )

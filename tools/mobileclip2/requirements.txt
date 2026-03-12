@@ -1,0 +1,9 @@
+torch
+torchvision
+timm
+pillow
+huggingface_hub
+onnx
+onnxruntime
+tensorflow==2.16.1
+onnx2tf

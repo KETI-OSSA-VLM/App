@@ -8,6 +8,7 @@
 /.idea/workspace.xml
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
+/.idea/deploymentTargetSelector.xml
 .DS_Store
 /build
 /captures
@@ -16,3 +17,7 @@
 local.properties
 docs/
 memory/
+tools/mobileclip2/.venv/
+tools/mobileclip2/vendor/
+tools/mobileclip2/artifacts/*
+!tools/mobileclip2/artifacts/README.md

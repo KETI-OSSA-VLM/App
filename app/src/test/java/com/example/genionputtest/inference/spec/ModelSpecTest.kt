@@ -1,19 +1,19 @@
 package com.example.genionputtest.inference.spec
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.tensorflow.lite.DataType
 
 class ModelSpecTest {
 
     @Test
-    fun mobileNetSpec_exposesQuantizedClassificationContract() {
-        assertEquals("mobilenet_v1_1.0_224_quant.tflite", MobileNetSpec.assetName)
-        assertEquals(224, MobileNetSpec.inputWidth)
-        assertEquals(224, MobileNetSpec.inputHeight)
-        assertEquals(DataType.UINT8, MobileNetSpec.inputDataType)
-        assertEquals(OutputKind.CLASSIFICATION, MobileNetSpec.outputKind)
-        assertFalse(MobileNetSpec.requiresNormalization)
+    fun mobileClip2S0Spec_exposesFloatEmbeddingContract() {
+        assertEquals("mobileclip2_s0_image_encoder_float16.tflite", MobileClip2S0Spec.assetName)
+        assertEquals(256, MobileClip2S0Spec.inputWidth)
+        assertEquals(256, MobileClip2S0Spec.inputHeight)
+        assertEquals(DataType.FLOAT32, MobileClip2S0Spec.inputDataType)
+        assertEquals(OutputKind.EMBEDDING, MobileClip2S0Spec.outputKind)
+        assertTrue(MobileClip2S0Spec.requiresNormalization)
     }
 }

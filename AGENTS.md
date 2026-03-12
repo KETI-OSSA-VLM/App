@@ -17,6 +17,7 @@
 
 ## Working Rules
 
+- 작업 완료 후 사용자에게 결과를 설명할 때는 항상 한 줄 요약 -> 왜 그랬는지 -> 지금 상태 순서로 쉽게 설명한다.
 - 작업 시작 전 현재 목표와 열린 이슈를 `memory/current.md`에서 확인한다.
 - 작업 종료 시 `memory/current.md`를 최신 상태로 갱신한다.
 - 당일 작업 내용은 `memory/daily/YYYY-MM-DD.md`에 기록한다.

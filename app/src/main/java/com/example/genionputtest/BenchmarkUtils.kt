@@ -2,6 +2,7 @@ package com.example.genionputtest
 
 import com.example.genionputtest.benchmark.LatencyBreakdown
 import com.example.genionputtest.inference.postprocess.ClassificationPostprocessor
+import com.example.genionputtest.inference.postprocess.EmbeddingOutput
 import java.nio.ByteBuffer
 
 internal data class Prediction(
@@ -59,6 +60,28 @@ internal fun formatClassificationResults(predictions: List<Prediction>, labels: 
         val label = labels.getOrNull(prediction.index) ?: "unknown"
         "#${rank + 1} $label (class ${prediction.index}) score=${prediction.score}"
     }.joinToString("\n")
+}
+
+internal fun formatEmbeddingSummary(
+    sourceLabel: String,
+    embedding: EmbeddingOutput,
+    latencyBreakdown: LatencyBreakdown
+): String {
+    val preview = embedding.previewValues.joinToString(prefix = "[", postfix = "]") { "%.3f".format(it) }
+    return buildString {
+        append(sourceLabel)
+        append('\n')
+        append(formatLatencyBreakdown(latencyBreakdown))
+        append('\n')
+        append("Dimension: ")
+        append(embedding.dimension)
+        append('\n')
+        append("L2 norm: ")
+        append("%.3f".format(embedding.l2Norm))
+        append('\n')
+        append("Preview: ")
+        append(preview)
+    }
 }
 
 internal inline fun runInferenceIterations(
