@@ -59,4 +59,8 @@ dependencies {
     implementation("org.tensorflow:tensorflow-lite:2.14.0")
     implementation("org.tensorflow:tensorflow-lite-select-tf-ops:2.14.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.9.0-alpha06")
 }
+
+
+
