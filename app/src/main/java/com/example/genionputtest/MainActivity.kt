@@ -32,6 +32,7 @@ import com.example.genionputtest.fastvlm.FastVlmRequest
 import com.example.genionputtest.fastvlm.FastVlmResponse
 import com.example.genionputtest.fastvlm.LiteRtFastVlmEngine
 import com.example.genionputtest.fastvlm.defaultFastVlmPrompt
+import com.example.genionputtest.llamacpp.LlamaCppEngine
 import com.example.genionputtest.inference.core.InferenceEngine
 import com.example.genionputtest.inference.core.InferenceOptions
 import com.example.genionputtest.inference.core.ModelAssetLoader
@@ -46,6 +47,7 @@ import com.example.genionputtest.inference.spec.MobileClip2S0Spec
 import com.example.genionputtest.inference.spec.MobileNetSpec
 import com.example.genionputtest.inference.spec.ModelSpec
 import com.example.genionputtest.inference.spec.OutputKind
+import com.example.genionputtest.inference.spec.SmolVlm2Spec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -95,6 +97,7 @@ internal fun previewImageSpec(): PreviewImageSpec = PreviewImageSpec(
 )
 
 internal fun availableModelSpecs(): List<ModelSpec> = listOf(
+    SmolVlm2Spec,
     FastVlmSpec,
     MobileClip2S0Spec,
     MobileNetSpec
@@ -142,6 +145,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var resultSectionDescriptionView: TextView
     private var modelBuffer: MappedByteBuffer? = null
     private var fastVlmEngine: FastVlmEngine? = null
+    private var llamaCppEngine: LlamaCppEngine? = null
+    private var spinnerInitialized = false
     private val availableModels = availableModelSpecs()
     private var selectedModelSpec: ModelSpec = availableModels.first()
     private val screenCopy = initialScreenCopy()
@@ -171,6 +176,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         closeFastVlmEngine()
+        closeLlamaCppEngine()
         super.onDestroy()
     }
 
@@ -350,8 +356,12 @@ class MainActivity : AppCompatActivity() {
         modelSpinner.setSelection(availableModels.indexOf(selectedModelSpec), false)
         modelSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (!spinnerInitialized) {
+                    spinnerInitialized = true
+                    return
+                }
                 val nextModel = availableModels[position]
-                if (nextModel == selectedModelSpec && (modelBuffer != null || fastVlmEngine != null)) {
+                if (nextModel == selectedModelSpec && (modelBuffer != null || fastVlmEngine != null || llamaCppEngine != null)) {
                     return
                 }
                 selectedModelSpec = nextModel
@@ -367,9 +377,27 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             setInteractionEnabled(false)
             closeFastVlmEngine()
+            closeLlamaCppEngine()
             modelBuffer = null
             try {
                 appendStatus("Loading model: ${modelSpec.modelName}...")
+
+                if (modelSpec is SmolVlm2Spec) {
+                    val modelPath = withContext(Dispatchers.IO) { resolveModelFilePath(modelSpec.assetName) }
+                    val mmprojPath = withContext(Dispatchers.IO) { resolveModelFilePath(modelSpec.mmprojAssetName) }
+                    val engine = LlamaCppEngine(
+                        modelPath = modelPath,
+                        mmprojPath = mmprojPath,
+                        cacheDir = cacheDir
+                    )
+                    withContext(Dispatchers.IO) { engine.initialize() }
+                    llamaCppEngine = engine
+                    benchmarkView.text = benchmarkPlaceholderFor(modelSpec)
+                    appendStatus("SmolVLM2 ready (llama.cpp): $modelPath")
+                    appendStatus("Pick an image and run the prompt.")
+                    return@launch
+                }
+
                 if (modelSpec.outputKind == OutputKind.TEXT_RESPONSE) {
                     val modelPath = withContext(Dispatchers.IO) {
                         resolveFastVlmModelPath(modelSpec)
@@ -552,8 +580,9 @@ class MainActivity : AppCompatActivity() {
 
                 val promptText = promptInput.text.toString()
                 val modelResult = withContext(Dispatchers.Default) {
-                    when (selectedModelSpec.outputKind) {
-                        OutputKind.TEXT_RESPONSE -> runFastVlm(bitmap, promptText)
+                    when {
+                        selectedModelSpec is SmolVlm2Spec -> runLlamaCpp(bitmap, promptText)
+                        selectedModelSpec.outputKind == OutputKind.TEXT_RESPONSE -> runFastVlm(bitmap, promptText)
                         else -> runSelectedModel(bitmap)
                     }
                 }
@@ -600,6 +629,12 @@ class MainActivity : AppCompatActivity() {
             @Suppress("DEPRECATION")
             MediaStore.Images.Media.getBitmap(contentResolver, uri)
         }
+    }
+
+    private suspend fun runLlamaCpp(bitmap: Bitmap, promptText: String): ModelExecutionResult {
+        val prompt = promptText.trim().ifBlank { defaultFastVlmPrompt() }
+        val response = requireLlamaCppEngine().generate(bitmap, prompt)
+        return LlamaCppExecutionResult(response = response, prompt = prompt)
     }
 
     private suspend fun runFastVlm(bitmap: Bitmap, promptText: String): ModelExecutionResult {
@@ -693,6 +728,18 @@ class MainActivity : AppCompatActivity() {
 
     private fun formatModelResultSummary(sourceLabel: String, result: ModelExecutionResult): String {
         return when (result) {
+            is LlamaCppExecutionResult -> {
+                buildString {
+                    append(sourceLabel)
+                    append('\n')
+                    append("Prompt: ")
+                    append(result.prompt)
+                    append('\n')
+                    append(result.response.latencySummary)
+                    append('\n')
+                    append(result.response.text)
+                }
+            }
             is TextExecutionResult -> {
                 buildString {
                     append(sourceLabel)
@@ -784,8 +831,30 @@ class MainActivity : AppCompatActivity() {
         fastVlmEngine = null
     }
 
+    private fun closeLlamaCppEngine() {
+        llamaCppEngine?.close()
+        llamaCppEngine = null
+    }
+
     private fun requireFastVlmEngine(): FastVlmEngine {
         return fastVlmEngine ?: error("Model engine is not initialized.")
+    }
+
+    private fun requireLlamaCppEngine(): LlamaCppEngine {
+        return llamaCppEngine ?: error("LlamaCpp engine is not initialized.")
+    }
+
+    private fun resolveModelFilePath(fileName: String): String {
+        val internalFile = File(filesDir, "models/$fileName")
+        if (internalFile.exists()) return internalFile.absolutePath
+
+        val externalFile = getExternalFilesDir(null)?.let { File(it, "models/$fileName") }
+        if (externalFile?.exists() == true) return externalFile.absolutePath
+
+        val downloadFile = File("/sdcard/Download/$fileName")
+        if (downloadFile.exists()) return downloadFile.absolutePath
+
+        error("Model file not found: $fileName. Copy it to ${internalFile.absolutePath}")
     }
 
     private fun requireModelBuffer(): MappedByteBuffer {
@@ -809,6 +878,11 @@ class MainActivity : AppCompatActivity() {
 }
 
 private sealed interface ModelExecutionResult
+
+private data class LlamaCppExecutionResult(
+    val response: com.example.genionputtest.llamacpp.LlamaCppResponse,
+    val prompt: String
+) : ModelExecutionResult
 
 private data class TextExecutionResult(
     val response: FastVlmResponse,

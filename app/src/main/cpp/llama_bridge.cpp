@@ -1,0 +1,210 @@
+#include <jni.h>
+#include <android/log.h>
+#include <string>
+#include <vector>
+
+#include "llama.h"
+#include "mtmd.h"
+#include "mtmd-helper.h"
+
+#define LOG_TAG "ACCV_LLAMA"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+static llama_model*   g_model      = nullptr;
+static llama_context* g_ctx        = nullptr;
+static mtmd_context*  g_ctx_vision = nullptr;
+
+extern "C" {
+
+JNIEXPORT jboolean JNICALL
+Java_com_example_genionputtest_llamacpp_LlamaCppBridge_loadModel(
+        JNIEnv* env,
+        jobject,
+        jstring modelPathJ,
+        jstring mmprojPathJ,
+        jint    nThreads
+) {
+    const char* model_path  = env->GetStringUTFChars(modelPathJ,  nullptr);
+    const char* mmproj_path = env->GetStringUTFChars(mmprojPathJ, nullptr);
+
+    // Clean up any previously loaded model
+    if (g_ctx_vision) { mtmd_free(g_ctx_vision);        g_ctx_vision = nullptr; }
+    if (g_ctx)        { llama_free(g_ctx);               g_ctx        = nullptr; }
+    if (g_model)      { llama_model_free(g_model);       g_model      = nullptr; }
+
+    // Load LLM
+    llama_model_params mparams = llama_model_default_params();
+    mparams.n_gpu_layers = 0; // CPU only: GGML_VULKAN=OFF build, no GPU backend available
+    g_model = llama_load_model_from_file(model_path, mparams);
+    if (!g_model) {
+        LOGE("Failed to load model: %s", model_path);
+        env->ReleaseStringUTFChars(modelPathJ, model_path);
+        env->ReleaseStringUTFChars(mmprojPathJ, mmproj_path);
+        return JNI_FALSE;
+    }
+
+    llama_context_params cparams = llama_context_default_params();
+    cparams.n_ctx          = 4096;
+    cparams.n_threads      = (uint32_t)nThreads;
+    cparams.n_threads_batch= (uint32_t)nThreads;
+    cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED; // faster inference + lower memory (required for q8_0 KV cache)
+    cparams.type_k         = GGML_TYPE_Q8_0; // 8-bit KV cache: ~50% memory vs f16, minimal quality loss
+    cparams.type_v         = GGML_TYPE_Q8_0;
+    g_ctx = llama_new_context_with_model(g_model, cparams);
+    if (!g_ctx) {
+        LOGE("Failed to create context");
+        llama_model_free(g_model); g_model = nullptr;
+        env->ReleaseStringUTFChars(modelPathJ, model_path);
+        env->ReleaseStringUTFChars(mmprojPathJ, mmproj_path);
+        return JNI_FALSE;
+    }
+
+    // Load vision (mmproj)
+    mtmd_context_params vparams = mtmd_context_params_default();
+    vparams.use_gpu       = false; // vision encoder on CPU (Vulkan overhead is slower for ViT)
+    vparams.n_threads     = (int32_t)nThreads;
+    vparams.print_timings = true;
+    g_ctx_vision = mtmd_init_from_file(mmproj_path, g_model, vparams);
+    if (!g_ctx_vision) {
+        LOGE("Failed to load mmproj: %s", mmproj_path);
+        llama_free(g_ctx);         g_ctx   = nullptr;
+        llama_model_free(g_model); g_model = nullptr;
+        env->ReleaseStringUTFChars(modelPathJ, model_path);
+        env->ReleaseStringUTFChars(mmprojPathJ, mmproj_path);
+        return JNI_FALSE;
+    }
+
+    LOGI("Model ready: %s", model_path);
+    env->ReleaseStringUTFChars(modelPathJ, model_path);
+    env->ReleaseStringUTFChars(mmprojPathJ, mmproj_path);
+    return JNI_TRUE;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_example_genionputtest_llamacpp_LlamaCppBridge_generate(
+        JNIEnv* env,
+        jobject,
+        jstring imagePathJ,
+        jstring promptTextJ,
+        jint    maxNewTokens
+) {
+    if (!g_model || !g_ctx || !g_ctx_vision) {
+        return env->NewStringUTF("ERROR: Model not loaded.");
+    }
+
+    const char* image_path = env->GetStringUTFChars(imagePathJ,  nullptr);
+    const char* prompt     = env->GetStringUTFChars(promptTextJ, nullptr);
+
+    llama_memory_clear(llama_get_memory(g_ctx), true);
+
+    // Load image bitmap
+    LOGI("Loading image: %s", image_path);
+    mtmd_bitmap* bitmap = mtmd_helper_bitmap_init_from_file(g_ctx_vision, image_path);
+    if (!bitmap) {
+        LOGE("Failed to load image: %s", image_path);
+        env->ReleaseStringUTFChars(imagePathJ,  image_path);
+        env->ReleaseStringUTFChars(promptTextJ, prompt);
+        return env->NewStringUTF("ERROR: Failed to load image.");
+    }
+    LOGI("Image loaded OK. nx=%u ny=%u", mtmd_bitmap_get_nx(bitmap), mtmd_bitmap_get_ny(bitmap));
+
+    // Build prompt with image marker
+    std::string marker(mtmd_default_marker());
+    std::string prompt_str = "<|im_start|>user\n" + marker + "\n" + prompt + "<|im_end|>\n<|im_start|>assistant\n";
+    LOGI("Prompt: %s", prompt_str.c_str());
+
+    // Tokenize text + image
+    mtmd_input_chunks* chunks = mtmd_input_chunks_init();
+    mtmd_input_text input_text = { prompt_str.c_str(), /*add_special=*/true, /*parse_special=*/true };
+    const mtmd_bitmap* bitmaps[] = { bitmap };
+    LOGI("Tokenizing...");
+    int32_t tok_ret = mtmd_tokenize(g_ctx_vision, chunks, &input_text, bitmaps, 1);
+    if (tok_ret != 0) {
+        LOGE("mtmd_tokenize failed: %d", tok_ret);
+        mtmd_bitmap_free(bitmap);
+        mtmd_input_chunks_free(chunks);
+        env->ReleaseStringUTFChars(imagePathJ,  image_path);
+        env->ReleaseStringUTFChars(promptTextJ, prompt);
+        return env->NewStringUTF("ERROR: Tokenize failed.");
+    }
+    LOGI("Tokenize OK. n_chunks=%zu n_tokens=%zu", mtmd_input_chunks_size(chunks), mtmd_helper_get_n_tokens(chunks));
+
+    // Eval (prefill: text tokens + image encoding)
+    llama_pos n_past = 0;
+    LOGI("Starting eval (image encode + prefill)...");
+    int32_t eval_ret = mtmd_helper_eval_chunks(
+        g_ctx_vision, g_ctx, chunks,
+        /*n_past=*/0, /*seq_id=*/0, /*n_batch=*/512, /*logits_last=*/true, &n_past
+    );
+    mtmd_bitmap_free(bitmap);
+    mtmd_input_chunks_free(chunks);
+
+    if (eval_ret != 0) {
+        LOGE("mtmd_helper_eval_chunks failed: %d", eval_ret);
+        env->ReleaseStringUTFChars(imagePathJ,  image_path);
+        env->ReleaseStringUTFChars(promptTextJ, prompt);
+        return env->NewStringUTF("ERROR: Eval failed.");
+    }
+    LOGI("Eval OK. n_past=%d. Starting generation...", (int)n_past);
+
+    // Sampler: temp + repetition penalty to avoid looping
+    llama_sampler* sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    llama_sampler_chain_add(sampler, llama_sampler_init_penalties(64, 1.1f, 0.0f, 0.0f));
+    llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.3f));
+    llama_sampler_chain_add(sampler, llama_sampler_init_dist(0));
+
+    const llama_vocab* vocab = llama_model_get_vocab(g_model);
+    llama_token eos = llama_vocab_eos(vocab);
+
+    std::string result;
+
+    for (int i = 0; i < maxNewTokens; i++) {
+        llama_token token = llama_sampler_sample(sampler, g_ctx, -1);
+        if (token == eos) {
+            LOGI("EOS at token %d", i);
+            break;
+        }
+
+        char piece[256];
+        int32_t len = llama_token_to_piece(vocab, token, piece, sizeof(piece), 0, true);
+        if (len > 0) result.append(piece, len);
+
+        if (i % 10 == 0) LOGI("Generated %d tokens so far: %s", i, result.c_str());
+
+        llama_batch batch = llama_batch_get_one(&token, 1);
+        if (llama_decode(g_ctx, batch) != 0) {
+            LOGE("llama_decode failed at token %d", i);
+            break;
+        }
+        n_past++;
+
+        // Stop after first sentence (sentence-level stop for short-answer prompts)
+        if (result.size() > 20) {
+            char last = result.back();
+            if (last == '.' || last == '!' || last == '?') {
+                LOGI("Sentence end at token %d", i);
+                break;
+            }
+        }
+    }
+    LOGI("Generation done. Total tokens: %zu", result.size());
+
+    llama_sampler_free(sampler);
+
+    env->ReleaseStringUTFChars(imagePathJ,  image_path);
+    env->ReleaseStringUTFChars(promptTextJ, prompt);
+    return env->NewStringUTF(result.c_str());
+}
+
+JNIEXPORT void JNICALL
+Java_com_example_genionputtest_llamacpp_LlamaCppBridge_freeModel(
+        JNIEnv*, jobject
+) {
+    if (g_ctx_vision) { mtmd_free(g_ctx_vision);        g_ctx_vision = nullptr; }
+    if (g_ctx)        { llama_free(g_ctx);               g_ctx        = nullptr; }
+    if (g_model)      { llama_model_free(g_model);       g_model      = nullptr; }
+    LOGI("Model freed.");
+}
+
+} // extern "C"

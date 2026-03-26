@@ -37,6 +37,21 @@ android {
     buildFeatures {
         compose = true
     }
+
+    // CMake build replaced by pre-built .so in jniLibs/arm64-v8a/
+    // (Vulkan-enabled, built via WSL Ubuntu + Android NDK r27c)
+    // externalNativeBuild {
+    //     cmake {
+    //         path = file("src/main/cpp/CMakeLists.txt")
+    //         version = "3.22.1+"
+    //     }
+    // }
+
+    defaultConfig {
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
+    }
 }
 
 dependencies {
