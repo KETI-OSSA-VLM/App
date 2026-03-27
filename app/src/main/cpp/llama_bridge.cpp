@@ -14,6 +14,7 @@
 static llama_model*   g_model      = nullptr;
 static llama_context* g_ctx        = nullptr;
 static mtmd_context*  g_ctx_vision = nullptr;
+static llama_pos      g_n_past_after_prefill = 0;
 
 extern "C" {
 
@@ -96,6 +97,7 @@ Java_com_example_genionputtest_llamacpp_LlamaCppBridge_generate(
     const char* image_path = env->GetStringUTFChars(imagePathJ,  nullptr);
     const char* prompt     = env->GetStringUTFChars(promptTextJ, nullptr);
 
+    g_n_past_after_prefill = 0;
     llama_memory_clear(llama_get_memory(g_ctx), true);
 
     // Load image bitmap
@@ -146,7 +148,8 @@ Java_com_example_genionputtest_llamacpp_LlamaCppBridge_generate(
         env->ReleaseStringUTFChars(promptTextJ, prompt);
         return env->NewStringUTF("ERROR: Eval failed.");
     }
-    LOGI("Eval OK. n_past=%d. Starting generation...", (int)n_past);
+    g_n_past_after_prefill = n_past;
+    LOGI("Eval OK. n_past=%d. Saved g_n_past_after_prefill=%d. Starting generation...", (int)n_past, (int)g_n_past_after_prefill);
 
     // Sampler: temp + repetition penalty to avoid looping
     llama_sampler* sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
@@ -205,6 +208,66 @@ Java_com_example_genionputtest_llamacpp_LlamaCppBridge_freeModel(
     if (g_ctx)        { llama_free(g_ctx);               g_ctx        = nullptr; }
     if (g_model)      { llama_model_free(g_model);       g_model      = nullptr; }
     LOGI("Model freed.");
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_example_genionputtest_llamacpp_LlamaCppBridge_generateOnly(
+        JNIEnv* env,
+        jobject,
+        jint maxNewTokens
+) {
+    if (!g_model || !g_ctx || !g_ctx_vision) {
+        return env->NewStringUTF("ERROR: Model not loaded.");
+    }
+    if (g_n_past_after_prefill == 0) {
+        return env->NewStringUTF("ERROR: No prefill state available.");
+    }
+
+    // Remove tokens generated in the previous generateOnly call,
+    // keeping the image+prompt KV cache intact.
+    llama_memory_seq_rm(llama_get_memory(g_ctx), 0, g_n_past_after_prefill, LLAMA_POS_MAX);
+    llama_pos n_past = g_n_past_after_prefill;
+
+    llama_sampler* sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    llama_sampler_chain_add(sampler, llama_sampler_init_penalties(64, 1.1f, 0.0f, 0.0f));
+    llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.3f));
+    llama_sampler_chain_add(sampler, llama_sampler_init_dist(0));
+
+    const llama_vocab* vocab = llama_model_get_vocab(g_model);
+    llama_token eos = llama_vocab_eos(vocab);
+    std::string result;
+
+    for (int i = 0; i < maxNewTokens; i++) {
+        llama_token token = llama_sampler_sample(sampler, g_ctx, -1);
+        if (token == eos) {
+            LOGI("generateOnly: EOS at token %d", i);
+            break;
+        }
+
+        char piece[256];
+        int32_t len = llama_token_to_piece(vocab, token, piece, sizeof(piece), 0, true);
+        if (len > 0) result.append(piece, len);
+
+        llama_batch batch = llama_batch_get_one(&token, 1);
+        if (llama_decode(g_ctx, batch) != 0) {
+            LOGE("generateOnly: llama_decode failed at token %d", i);
+            llama_sampler_free(sampler);
+            return env->NewStringUTF("ERROR: decode failed.");
+        }
+        n_past++;
+
+        if (result.size() > 20) {
+            char last = result.back();
+            if (last == '.' || last == '!' || last == '?') {
+                LOGI("generateOnly: sentence end at token %d", i);
+                break;
+            }
+        }
+    }
+
+    llama_sampler_free(sampler);
+    LOGI("generateOnly done. result: %s", result.c_str());
+    return env->NewStringUTF(result.c_str());
 }
 
 } // extern "C"

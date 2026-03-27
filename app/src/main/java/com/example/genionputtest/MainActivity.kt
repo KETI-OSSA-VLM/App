@@ -22,8 +22,16 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.view.PreviewView
+import androidx.core.content.ContextCompat
+import com.example.genionputtest.video.AdaptiveVlmRunner
+import com.example.genionputtest.video.AdaptiveResult
+import com.example.genionputtest.video.CameraFrameStream
+import com.example.genionputtest.video.VideoFileFrameExtractor
 import androidx.lifecycle.lifecycleScope
 import com.example.genionputtest.benchmark.LatencyBreakdown
 import com.example.genionputtest.benchmark.LatencyTracker
@@ -126,15 +134,13 @@ internal fun benchmarkPlaceholderFor(modelSpec: ModelSpec): String = when (model
     else -> "Benchmarks will appear after ${modelSpec.modelName} initialization."
 }
 
-internal fun shouldShowPromptOnlyButton(outputKind: OutputKind): Boolean {
-    return outputKind == OutputKind.TEXT_RESPONSE
-}
-
 class MainActivity : AppCompatActivity() {
 
     private lateinit var imageView: ImageView
     private lateinit var pickImageButton: Button
-    private lateinit var runPromptOnlyButton: Button
+    private lateinit var pickVideoButton: Button
+    private lateinit var startStopCameraButton: Button
+    private lateinit var previewView: PreviewView
     private lateinit var modelSpinner: Spinner
     private lateinit var promptInput: EditText
     private lateinit var statusView: TextView
@@ -146,6 +152,9 @@ class MainActivity : AppCompatActivity() {
     private var modelBuffer: MappedByteBuffer? = null
     private var fastVlmEngine: FastVlmEngine? = null
     private var llamaCppEngine: LlamaCppEngine? = null
+    private var adaptiveVlmRunner: AdaptiveVlmRunner? = null
+    private var cameraFrameStream: CameraFrameStream? = null
+    private var isCameraRunning = false
     private var spinnerInitialized = false
     private val availableModels = availableModelSpecs()
     private var selectedModelSpec: ModelSpec = availableModels.first()
@@ -164,6 +173,19 @@ class MainActivity : AppCompatActivity() {
             return@registerForActivityResult
         }
         runInferenceForSelectedImage(uri)
+    }
+
+    private val pickVideoLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) {
+            appendStatus("Video selection canceled.")
+            return@registerForActivityResult
+        }
+        runVideoInference(uri)
+    }
+
+    private val cameraPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startCamera()
+        else appendStatus("Camera permission denied.")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -234,18 +256,38 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        runPromptOnlyButton = Button(this).apply {
-            text = "Run prompt only"
+        pickVideoButton = Button(this).apply {
+            text = "Pick video"
             setAllCaps(false)
             textSize = 16f
             setPadding(dp(18), dp(14), dp(18), dp(14))
             setOnClickListener {
-                runFastVlmTextOnlyClick()
+                pickVideoLauncher.launch("video/*")
             }
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            )
+            ).apply { bottomMargin = dp(8) }
+        }
+
+        startStopCameraButton = Button(this).apply {
+            text = "Start camera"
+            setAllCaps(false)
+            textSize = 16f
+            setPadding(dp(18), dp(14), dp(18), dp(14))
+            setOnClickListener { onStartStopCameraClicked() }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+        }
+
+        previewView = PreviewView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(200)
+            ).apply { bottomMargin = dp(8) }
+            visibility = View.GONE
         }
 
         imageView = ImageView(this).apply {
@@ -296,7 +338,9 @@ class MainActivity : AppCompatActivity() {
         actionCard.addView(createFieldLabel("Prompt"))
         actionCard.addView(promptInput)
         actionCard.addView(pickImageButton)
-        actionCard.addView(runPromptOnlyButton)
+        actionCard.addView(pickVideoButton)
+        actionCard.addView(startStopCameraButton)
+        actionCard.addView(previewView)
         container.addView(actionCard, createCardLayoutParams(bottomMargin = cardSpacing))
 
         val previewCard = createSectionCard(
@@ -392,6 +436,10 @@ class MainActivity : AppCompatActivity() {
                     )
                     withContext(Dispatchers.IO) { engine.initialize() }
                     llamaCppEngine = engine
+                    adaptiveVlmRunner = AdaptiveVlmRunner(
+                        engine = engine,
+                        prompt = promptInput.text.toString().trim().ifBlank { defaultFastVlmPrompt() }
+                    )
                     benchmarkView.text = benchmarkPlaceholderFor(modelSpec)
                     appendStatus("SmolVLM2 ready (llama.cpp): $modelPath")
                     appendStatus("Pick an image and run the prompt.")
@@ -458,10 +506,13 @@ class MainActivity : AppCompatActivity() {
         resultSectionDescriptionView.text = resultSectionDescriptionFor(modelSpec.outputKind)
         resultView.text = resultPlaceholderFor(modelSpec.outputKind)
         benchmarkView.text = benchmarkPlaceholderFor(modelSpec)
-        val promptVisible = shouldShowPromptOnlyButton(modelSpec.outputKind)
-        promptInput.visibility = if (promptVisible) View.VISIBLE else View.GONE
-        runPromptOnlyButton.visibility = if (promptVisible) View.VISIBLE else View.GONE
-        pickImageButton.text = if (promptVisible) "Pick image and run prompt" else "Pick image"
+        val isVlm = modelSpec.outputKind == OutputKind.TEXT_RESPONSE
+        promptInput.visibility = if (isVlm) View.VISIBLE else View.GONE
+        val isSmolVlm = modelSpec is SmolVlm2Spec
+        pickVideoButton.visibility = if (isSmolVlm) View.VISIBLE else View.GONE
+        startStopCameraButton.visibility = if (isSmolVlm) View.VISIBLE else View.GONE
+        previewView.visibility = View.GONE
+        pickImageButton.text = if (isVlm) "Pick image and run prompt" else "Pick image"
     }
 
     private fun ensureSupportData(modelSpec: ModelSpec) {
@@ -564,7 +615,7 @@ class MainActivity : AppCompatActivity() {
     private fun setInteractionEnabled(enabled: Boolean) {
         modelSpinner.isEnabled = enabled
         pickImageButton.isEnabled = enabled
-        runPromptOnlyButton.isEnabled = enabled
+        pickVideoButton.isEnabled = enabled
         promptInput.isEnabled = enabled
     }
 
@@ -593,27 +644,6 @@ class MainActivity : AppCompatActivity() {
                 Log.e("GENIO_TEST", "Inference failed", t)
                 resultView.text = "Inference failed: ${t.message ?: t.javaClass.simpleName}"
                 appendStatus("Inference failed. Check logcat.")
-            } finally {
-                setInteractionEnabled(true)
-            }
-        }
-    }
-
-    private fun runFastVlmTextOnlyClick() {
-        lifecycleScope.launch {
-            setInteractionEnabled(false)
-            try {
-                appendStatus("Running model prompt without image...")
-                val prompt = promptInput.text.toString()
-                val modelResult = withContext(Dispatchers.Default) {
-                    runFastVlmPromptOnly(prompt)
-                }
-                resultView.text = formatModelResultSummary("prompt only", modelResult)
-                appendStatus("Text-only model request complete.")
-            } catch (t: Throwable) {
-                Log.e("GENIO_TEST", "Text-only model inference failed", t)
-                resultView.text = "Text-only model inference failed: ${t.message ?: t.javaClass.simpleName}"
-                appendStatus("Text-only model inference failed. Check logcat.")
             } finally {
                 setInteractionEnabled(true)
             }
@@ -832,8 +862,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun closeLlamaCppEngine() {
+        stopCamera()
         llamaCppEngine?.close()
         llamaCppEngine = null
+        adaptiveVlmRunner = null
     }
 
     private fun requireFastVlmEngine(): FastVlmEngine {
@@ -873,6 +905,88 @@ class MainActivity : AppCompatActivity() {
                 append('\n')
             }
             append(message)
+        }
+    }
+
+    private fun onStartStopCameraClicked() {
+        if (isCameraRunning) {
+            stopCamera()
+        } else {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                == PackageManager.PERMISSION_GRANTED
+            ) {
+                startCamera()
+            } else {
+                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            }
+        }
+    }
+
+    private fun startCamera() {
+        val runner = adaptiveVlmRunner ?: run {
+            appendStatus("Load SmolVLM2 first.")
+            return
+        }
+        isCameraRunning = true
+        startStopCameraButton.text = "Stop camera"
+        previewView.visibility = View.VISIBLE
+        lifecycleScope.launch { runner.resetStats() }
+        cameraFrameStream = CameraFrameStream(this, this, previewView).also { stream ->
+            stream.start { bitmap ->
+                lifecycleScope.launch {
+                    val result = runner.processFrame(bitmap)
+                    updateAdaptiveResult(result, runner)
+                }
+            }
+        }
+        appendStatus("Camera started.")
+    }
+
+    private fun stopCamera() {
+        cameraFrameStream?.stop()
+        cameraFrameStream = null
+        isCameraRunning = false
+        runOnUiThread {
+            startStopCameraButton.text = "Start camera"
+            previewView.visibility = View.GONE
+        }
+    }
+
+    private fun runVideoInference(uri: Uri) {
+        val runner = adaptiveVlmRunner ?: run {
+            appendStatus("Load SmolVLM2 first.")
+            return
+        }
+        lifecycleScope.launch {
+            setInteractionEnabled(false)
+            runner.resetStats()
+            try {
+                appendStatus("Starting video inference...")
+                val extractor = VideoFileFrameExtractor(this@MainActivity)
+                extractor.extract(uri) { bitmap ->
+                    lifecycleScope.launch {
+                        val result = runner.processFrame(bitmap)
+                        updateAdaptiveResult(result, runner)
+                    }
+                }
+                appendStatus("Video inference complete. ${runner.tierDistribution()}")
+            } catch (t: Throwable) {
+                Log.e("GENIO_TEST", "Video inference failed", t)
+                appendStatus("Video inference failed: ${t.message ?: t.javaClass.simpleName}")
+            } finally {
+                setInteractionEnabled(true)
+            }
+        }
+    }
+
+    private fun updateAdaptiveResult(result: AdaptiveResult, runner: AdaptiveVlmRunner) {
+        runOnUiThread {
+            resultView.text = buildString {
+                append("[Tier ${result.tier.ordinal} | ${"%.0f".format(result.inferenceMs)}ms]\n")
+                append(result.text)
+                append("\n")
+                append(runner.tierDistribution())
+            }
         }
     }
 }

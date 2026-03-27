@@ -16,6 +16,10 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildTypes {
@@ -47,11 +51,6 @@ android {
     //     }
     // }
 
-    defaultConfig {
-        ndk {
-            abiFilters += "arm64-v8a"
-        }
-    }
 }
 
 dependencies {
@@ -74,6 +73,10 @@ dependencies {
     implementation("org.tensorflow:tensorflow-lite:2.14.0")
     implementation("org.tensorflow:tensorflow-lite-select-tf-ops:2.14.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("androidx.camera:camera-core:1.3.4")
+    implementation("androidx.camera:camera-camera2:1.3.4")
+    implementation("androidx.camera:camera-lifecycle:1.3.4")
+    implementation("androidx.camera:camera-view:1.3.4")
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.9.0-alpha06")
 }
 

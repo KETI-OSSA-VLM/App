@@ -37,6 +37,18 @@ class LlamaCppEngine(
         }
     }
 
+    // Note: this function is NOT safe for concurrent calls.
+    // Serialization with generate() is the caller's responsibility (AdaptiveVlmRunner uses Mutex).
+    suspend fun generateOnly(): LlamaCppResponse {
+        check(loaded) { "LlamaCppEngine is not initialized." }
+        return withContext(Dispatchers.Default) {
+            val startNs = System.nanoTime()
+            val raw = bridge.generateOnly(maxNewTokens)
+            val elapsedMs = (System.nanoTime() - startNs) / 1_000_000.0
+            LlamaCppResponse(text = firstSentence(raw), inferenceMs = elapsedMs)
+        }
+    }
+
     override fun close() {
         if (loaded) {
             bridge.freeModel()
