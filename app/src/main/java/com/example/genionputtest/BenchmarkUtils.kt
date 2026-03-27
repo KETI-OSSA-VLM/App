@@ -10,9 +10,6 @@ internal data class Prediction(
     val score: Int
 )
 
-internal fun formatBenchmarkStatus(tag: String, avgMs: Double, runs: Int): String {
-    return "[$tag] avg=%.3f ms (runs=%d)".format(avgMs, runs)
-}
 
 internal fun extractTopClasses(output: ByteBuffer, topK: Int): List<Prediction> {
     return ClassificationPostprocessor(topK = topK).fromOutput(output).predictions

@@ -12,17 +12,22 @@ import androidx.camera.view.PreviewView
 import androidx.lifecycle.LifecycleOwner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
 import java.util.concurrent.Executors
 
 fun interface FrameCallback {
     fun onFrame(bitmap: Bitmap)
 }
 
+fun interface SuspendFrameCallback {
+    suspend fun onFrame(bitmap: Bitmap)
+}
+
 class VideoFileFrameExtractor(
     private val context: Context,
     private val intervalMs: Long = 500L
 ) {
-    suspend fun extract(uri: Uri, callback: FrameCallback) = withContext(Dispatchers.IO) {
+    suspend fun extract(uri: Uri, callback: SuspendFrameCallback) = withContext(Dispatchers.IO) {
         val retriever = MediaMetadataRetriever()
         try {
             retriever.setDataSource(context, uri)
@@ -69,9 +74,7 @@ class CameraFrameStream(
             imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy: ImageProxy ->
                 val bitmap = imageProxy.toBitmap()
                 imageProxy.close()
-                kotlinx.coroutines.GlobalScope.launch(Dispatchers.Default) {
-                    callback.onFrame(bitmap)
-                }
+                callback.onFrame(bitmap)
             }
 
             provider.unbindAll()

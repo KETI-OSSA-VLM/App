@@ -71,10 +71,8 @@ internal data class MainScreenCopy(
     val modelPickerLabel: String,
     val previewTitle: String,
     val resultTitle: String,
-    val benchmarkTitle: String,
     val statusTitle: String,
-    val initialStatus: String,
-    val initialBenchmark: String
+    val initialStatus: String
 )
 
 internal data class PreviewImageSpec(
@@ -91,10 +89,8 @@ internal fun initialScreenCopy(): MainScreenCopy = MainScreenCopy(
     modelPickerLabel = "Active model",
     previewTitle = "Selected image",
     resultTitle = "Result",
-    benchmarkTitle = "Benchmark",
     statusTitle = "Status log",
-    initialStatus = "Model is loading.",
-    initialBenchmark = "Benchmarks will appear after model initialization."
+    initialStatus = "Model is loading."
 )
 
 internal fun previewImageSpec(): PreviewImageSpec = PreviewImageSpec(
@@ -129,10 +125,6 @@ internal fun resultPlaceholderFor(outputKind: OutputKind): String = when (output
     OutputKind.TEXT_RESPONSE -> "Run a model prompt with the selected image to see the latest response."
 }
 
-internal fun benchmarkPlaceholderFor(modelSpec: ModelSpec): String = when (modelSpec.outputKind) {
-    OutputKind.TEXT_RESPONSE -> "Model request latency will appear in the response summary."
-    else -> "Benchmarks will appear after ${modelSpec.modelName} initialization."
-}
 
 class MainActivity : AppCompatActivity() {
 
@@ -145,7 +137,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var promptInput: EditText
     private lateinit var statusView: TextView
     private lateinit var resultView: TextView
-    private lateinit var benchmarkView: TextView
     private lateinit var modelNameView: TextView
     private lateinit var resultSectionTitleView: TextView
     private lateinit var resultSectionDescriptionView: TextView
@@ -320,13 +311,6 @@ class MainActivity : AppCompatActivity() {
             text = resultPlaceholderFor(selectedModelSpec.outputKind)
         }
 
-        benchmarkView = TextView(this).apply {
-            textSize = 15f
-            setTextColor(Color.parseColor("#122033"))
-            setLineSpacing(0f, 1.2f)
-            text = screenCopy.initialBenchmark
-        }
-
         container.addView(createHeaderBlock(), createCardLayoutParams(bottomMargin = cardSpacing))
 
         val actionCard = createSectionCard(
@@ -359,13 +343,6 @@ class MainActivity : AppCompatActivity() {
         }
         container.addView(resultCard, createCardLayoutParams(bottomMargin = cardSpacing))
 
-        val benchmarkCard = createSectionCard(
-            title = screenCopy.benchmarkTitle,
-            description = "Startup benchmark snapshot for CPU and NNAPI."
-        )
-        benchmarkCard.addView(benchmarkView)
-        container.addView(benchmarkCard, createCardLayoutParams(bottomMargin = cardSpacing))
-
         val logCard = createSectionCard(
             title = screenCopy.statusTitle,
             description = "Lower-priority progress history."
@@ -389,11 +366,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun configureModelPicker() {
-        val adapter = ArrayAdapter(
+        val adapter = object : ArrayAdapter<String>(
             this,
             android.R.layout.simple_spinner_item,
             availableModels.map { it.modelName }
-        ).apply {
+        ) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val view = super.getView(position, convertView, parent) as TextView
+                view.setTextColor(Color.parseColor("#122033"))
+                return view
+            }
+        }.apply {
             setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         }
         modelSpinner.adapter = adapter
@@ -471,28 +454,9 @@ class MainActivity : AppCompatActivity() {
                 appendStatus("Model loaded: ${modelSpec.assetName}")
                 appendStatus("Pick an image from the device to run ${resultSectionTitleFor(modelSpec.outputKind).lowercase()}.")
 
-                appendStatus("Running CPU benchmark...")
-                val cpuResult = withContext(Dispatchers.Default) {
-                    runBenchmark(tag = "CPU", modelBuffer = requireModelBuffer(), useNnapi = false)
-                }
-
-                appendStatus("Running NNAPI benchmark...")
-                val nnapiResult = withContext(Dispatchers.Default) {
-                    runBenchmark(tag = "NNAPI", modelBuffer = requireModelBuffer(), useNnapi = true)
-                }
-
-                benchmarkView.text = buildString {
-                    append(modelSpec.modelName)
-                    append('\n')
-                    append(cpuResult)
-                    append('\n')
-                    append(nnapiResult)
-                }
-                appendStatus("Benchmarks finished for ${modelSpec.modelName}.")
             } catch (t: Throwable) {
                 Log.e("GENIO_TEST", "Model load failed", t)
                 resultView.text = "Model load failed: ${t.message ?: t.javaClass.simpleName}"
-                benchmarkView.text = "Benchmark unavailable while the model is not loaded."
                 appendStatus("Model load failed. Check logcat.")
             } finally {
                 setInteractionEnabled(true)
@@ -505,7 +469,6 @@ class MainActivity : AppCompatActivity() {
         resultSectionTitleView.text = resultSectionTitleFor(modelSpec.outputKind)
         resultSectionDescriptionView.text = resultSectionDescriptionFor(modelSpec.outputKind)
         resultView.text = resultPlaceholderFor(modelSpec.outputKind)
-        benchmarkView.text = benchmarkPlaceholderFor(modelSpec)
         val isVlm = modelSpec.outputKind == OutputKind.TEXT_RESPONSE
         promptInput.visibility = if (isVlm) View.VISIBLE else View.GONE
         val isSmolVlm = modelSpec is SmolVlm2Spec
@@ -810,25 +773,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun runBenchmark(tag: String, modelBuffer: MappedByteBuffer, useNnapi: Boolean): String {
-        val runs = 50
-        InferenceEngine(
-            modelBuffer = modelBuffer,
-            options = InferenceOptions(useNnapi = useNnapi)
-        ).use { engine ->
-            Log.i("GENIO_TEST", "[$tag] input shape=${engine.inputShape().contentToString()} type=${engine.inputDataType()}")
-            Log.i("GENIO_TEST", "[$tag] output shape=${engine.outputShape().contentToString()} type=${engine.outputDataType()}")
-
-            val avgMs = engine.benchmark(
-                warmupRuns = 5,
-                runs = runs,
-                inputBuffer = engine.createBenchmarkInput()
-            )
-            val result = formatBenchmarkStatus(tag = tag, avgMs = avgMs, runs = runs)
-            Log.i("GENIO_TEST", result)
-            return result
-        }
-    }
 
     private fun resolveFastVlmModelPath(modelSpec: ModelSpec): String {
         val internalFile = File(filesDir, "models/${modelSpec.assetName}")
@@ -934,6 +878,7 @@ class MainActivity : AppCompatActivity() {
         cameraFrameStream = CameraFrameStream(this, this, previewView).also { stream ->
             stream.start { bitmap ->
                 lifecycleScope.launch {
+                    imageView.setImageBitmap(bitmap)
                     val result = runner.processFrame(bitmap)
                     updateAdaptiveResult(result, runner)
                 }
@@ -964,10 +909,9 @@ class MainActivity : AppCompatActivity() {
                 appendStatus("Starting video inference...")
                 val extractor = VideoFileFrameExtractor(this@MainActivity)
                 extractor.extract(uri) { bitmap ->
-                    lifecycleScope.launch {
-                        val result = runner.processFrame(bitmap)
-                        updateAdaptiveResult(result, runner)
-                    }
+                    withContext(Dispatchers.Main) { imageView.setImageBitmap(bitmap) }
+                    val result = runner.processFrame(bitmap)
+                    withContext(Dispatchers.Main) { updateAdaptiveResult(result, runner) }
                 }
                 appendStatus("Video inference complete. ${runner.tierDistribution()}")
             } catch (t: Throwable) {
