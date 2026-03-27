@@ -225,7 +225,7 @@ Java_com_example_genionputtest_llamacpp_LlamaCppBridge_generateOnly(
 
     // Remove tokens generated in the previous generateOnly call,
     // keeping the image+prompt KV cache intact.
-    llama_memory_seq_rm(llama_get_memory(g_ctx), 0, g_n_past_after_prefill, LLAMA_POS_MAX);
+    llama_memory_seq_rm(llama_get_memory(g_ctx), 0, g_n_past_after_prefill, INT32_MAX);
     llama_pos n_past = g_n_past_after_prefill;
 
     llama_sampler* sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
