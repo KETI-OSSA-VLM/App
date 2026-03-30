@@ -944,7 +944,7 @@ class MainActivity : AppCompatActivity() {
                                 withContext(Dispatchers.Main) { imageView.setImageBitmap(bitmap) }
                                 // 추론 코루틴에는 copy 전송 (소유권 분리, recycle 충돌 방지)
                                 // ARGB_8888로 강제 변환: hardware-backed bitmap(API 26+) copy 오류 방지
-                                val copy = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                                val copy = bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: return@extract
                                 frameChannel.send(copy)  // CONFLATED: 항상 비블로킹
                             }
                         } finally {

@@ -48,7 +48,8 @@ class AdaptiveVlmRunner(
                     if (cached == null) {
                         // No cache yet — fall back to Tier.TWO
                         val response = engine.generate(bitmap, prompt)
-                        previousFrame = bitmap
+                        previousFrame?.recycle()
+                        previousFrame = bitmap.copy(Bitmap.Config.ARGB_8888, false)
                         lastResultText = response.text
                         Pair(response.text, Tier.TWO)
                     } else {
@@ -60,7 +61,8 @@ class AdaptiveVlmRunner(
                     if (response.text.startsWith("ERROR:")) {
                         // Fall back to Tier.TWO
                         val fallback = engine.generate(bitmap, prompt)
-                        previousFrame = bitmap
+                        previousFrame?.recycle()
+                        previousFrame = bitmap.copy(Bitmap.Config.ARGB_8888, false)
                         lastResultText = fallback.text
                         Pair(fallback.text, Tier.TWO)
                     } else {
@@ -70,7 +72,8 @@ class AdaptiveVlmRunner(
                 }
                 Tier.TWO -> {
                     val response = engine.generate(bitmap, prompt)
-                    previousFrame = bitmap
+                    previousFrame?.recycle()
+                    previousFrame = bitmap.copy(Bitmap.Config.ARGB_8888, false)
                     lastResultText = response.text
                     Pair(response.text, Tier.TWO)
                 }
