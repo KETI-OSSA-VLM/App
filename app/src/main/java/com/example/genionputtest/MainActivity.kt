@@ -58,6 +58,8 @@ import com.example.genionputtest.inference.spec.OutputKind
 import com.example.genionputtest.inference.spec.SmolVlm2Spec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -927,12 +929,45 @@ class MainActivity : AppCompatActivity() {
             runner.resetStats()
             try {
                 appendStatus("Starting video inference...")
-                val extractor = VideoFileFrameExtractor(this@MainActivity)
-                extractor.extract(uri) { bitmap ->
-                    withContext(Dispatchers.Main) { imageView.setImageBitmap(bitmap) }
-                    val result = runner.processFrame(bitmap)
-                    withContext(Dispatchers.Main) { updateAdaptiveResult(result, runner) }
+
+                // CONFLATED: 추론 중 도착한 프레임은 최신 1개만 유지.
+                // onUndeliveredElement: 채널에서 교체(드롭)된 bitmap copy를 즉시 recycle.
+                val frameChannel = Channel<Bitmap>(Channel.CONFLATED) { it.recycle() }
+
+                coroutineScope {
+                    // 추출 코루틴: imageView 실시간 업데이트 + bitmap copy → 채널 전송
+                    launch(Dispatchers.IO) {
+                        val extractor = VideoFileFrameExtractor(this@MainActivity)
+                        try {
+                            extractor.extract(uri) { bitmap ->
+                                // ImageView에는 원본 bitmap 표시
+                                withContext(Dispatchers.Main) { imageView.setImageBitmap(bitmap) }
+                                // 추론 코루틴에는 copy 전송 (소유권 분리, recycle 충돌 방지)
+                                // ARGB_8888로 강제 변환: hardware-backed bitmap(API 26+) copy 오류 방지
+                                val copy = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                                frameChannel.send(copy)  // CONFLATED: 항상 비블로킹
+                            }
+                        } finally {
+                            // 추출 완료 or 취소 시 채널 닫기 → 추론 코루틴 for 루프 종료
+                            frameChannel.close()
+                        }
+                    }
+
+                    // 추론 코루틴: 채널에서 최신 프레임 받아 processFrame()
+                    // frameChannel.close() 시 for 루프 자동 종료
+                    launch(Dispatchers.Default) {
+                        for (frame in frameChannel) {
+                            // try/finally로 cancel 시에도 frame.recycle() 보장
+                            try {
+                                val result = runner.processFrame(frame)
+                                withContext(Dispatchers.Main) { updateAdaptiveResult(result, runner) }
+                            } finally {
+                                frame.recycle()
+                            }
+                        }
+                    }
                 }
+                // coroutineScope: 두 코루틴 모두 완료 후 여기 도달
                 appendStatus("Video inference complete. ${runner.tierDistribution()}")
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) {
