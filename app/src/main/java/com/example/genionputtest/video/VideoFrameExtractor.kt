@@ -29,7 +29,11 @@ class VideoFileFrameExtractor(
     private val context: Context,
     private val intervalMs: Long = 100L
 ) {
-    suspend fun extract(uri: Uri, callback: SuspendFrameCallback) = withContext(Dispatchers.IO) {
+    suspend fun extract(
+        uri: Uri,
+        onProgress: ((currentMs: Long, durationMs: Long) -> Unit)? = null,
+        callback: SuspendFrameCallback
+    ) = withContext(Dispatchers.IO) {
         val retriever = MediaMetadataRetriever()
         try {
             retriever.setDataSource(context, uri)
@@ -40,6 +44,7 @@ class VideoFileFrameExtractor(
             val stepUs = intervalMs * 1000L
             while (timeUs <= endUs) {
                 coroutineContext.ensureActive()
+                onProgress?.invoke(timeUs / 1000L, durationMs)
                 val bitmap = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
                 if (bitmap != null) {
                     callback.onFrame(bitmap)

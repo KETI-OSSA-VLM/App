@@ -135,6 +135,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pickImageButton: Button
     private lateinit var pickVideoButton: Button
     private lateinit var cancelVideoButton: Button
+    private lateinit var videoProgressBar: android.widget.ProgressBar
+    private lateinit var videoTimeView: TextView
     private lateinit var startStopCameraButton: Button
     private var videoJob: Job? = null
     private lateinit var previewView: PreviewView
@@ -282,6 +284,27 @@ class MainActivity : AppCompatActivity() {
             ).apply { bottomMargin = dp(8) }
         }
 
+        videoProgressBar = android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 1000
+            progress = 0
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(4) }
+        }
+
+        videoTimeView = TextView(this).apply {
+            textSize = 13f
+            setTextColor(Color.parseColor("#5F6B76"))
+            text = ""
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+        }
+
         startStopCameraButton = Button(this).apply {
             text = "Start camera"
             setAllCaps(false)
@@ -345,6 +368,8 @@ class MainActivity : AppCompatActivity() {
         actionCard.addView(pickImageButton)
         actionCard.addView(pickVideoButton)
         actionCard.addView(cancelVideoButton)
+        actionCard.addView(videoProgressBar)
+        actionCard.addView(videoTimeView)
         actionCard.addView(startStopCameraButton)
         actionCard.addView(previewView)
         container.addView(actionCard, createCardLayoutParams(bottomMargin = cardSpacing))
@@ -926,6 +951,10 @@ class MainActivity : AppCompatActivity() {
         videoJob = lifecycleScope.launch {
             setInteractionEnabled(false)
             cancelVideoButton.visibility = View.VISIBLE
+            videoProgressBar.visibility = View.VISIBLE
+            videoProgressBar.progress = 0
+            videoTimeView.visibility = View.VISIBLE
+            videoTimeView.text = "0:00 / --:--"
             runner.resetStats()
             try {
                 appendStatus("Starting video inference...")
@@ -939,7 +968,20 @@ class MainActivity : AppCompatActivity() {
                     launch(Dispatchers.IO) {
                         val extractor = VideoFileFrameExtractor(this@MainActivity)
                         try {
-                            extractor.extract(uri) { bitmap ->
+                            extractor.extract(
+                                uri,
+                                onProgress = { currentMs, durationMs ->
+                                    if (durationMs > 0) {
+                                        val progress = ((currentMs * 1000L) / durationMs).toInt()
+                                        val currentStr = formatVideoTime(currentMs)
+                                        val totalStr = formatVideoTime(durationMs)
+                                        runOnUiThread {
+                                            videoProgressBar.progress = progress
+                                            videoTimeView.text = "$currentStr / $totalStr"
+                                        }
+                                    }
+                                }
+                            ) { bitmap ->
                                 // ImageView에는 원본 bitmap 표시
                                 withContext(Dispatchers.Main) { imageView.setImageBitmap(bitmap) }
                                 // 추론 코루틴에는 copy 전송 (소유권 분리, recycle 충돌 방지)
@@ -980,6 +1022,8 @@ class MainActivity : AppCompatActivity() {
             } finally {
                 setInteractionEnabled(true)
                 cancelVideoButton.visibility = View.GONE
+                videoProgressBar.visibility = View.GONE
+                videoTimeView.visibility = View.GONE
                 videoJob = null
             }
         }
@@ -994,6 +1038,13 @@ class MainActivity : AppCompatActivity() {
                 append(runner.tierDistribution())
             }
         }
+    }
+
+    private fun formatVideoTime(ms: Long): String {
+        val totalSec = ms / 1000L
+        val min = totalSec / 60
+        val sec = totalSec % 60
+        return "%d:%02d".format(min, sec)
     }
 }
 
