@@ -5,12 +5,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FrameChannelTest {
 
     @Test
-    fun `conflated channel keeps only latest value`() = runTest {
+    fun conflatedChannel_keepsOnlyLatestValue() = runTest {
         val channel = Channel<Int>(Channel.CONFLATED)
 
         channel.send(1)
@@ -20,10 +21,11 @@ class FrameChannelTest {
         // CONFLATED: 1, 2는 3으로 덮어씌워짐
         assertEquals(3, channel.tryReceive().getOrNull())
         assertNull(channel.tryReceive().getOrNull())
+        channel.close()
     }
 
     @Test
-    fun `for loop terminates when channel is closed`() = runTest {
+    fun forLoop_terminatesWhenChannelIsClosed() = runTest {
         val channel = Channel<Int>(Channel.CONFLATED)
         val received = mutableListOf<Int>()
 
@@ -38,11 +40,11 @@ class FrameChannelTest {
         }
 
         producerJob.join()
-        assert(received.isNotEmpty()) { "Expected at least one received value" }
+        assertTrue("Expected at least one received value", received.isNotEmpty())
     }
 
     @Test
-    fun `onUndeliveredElement called for each dropped frame`() = runTest {
+    fun onUndeliveredElement_calledForEachDroppedFrame() = runTest {
         var droppedCount = 0
         // onUndeliveredElement는 채널 내부에서 교체(드롭)될 때마다 동기 호출됨
         val channel = Channel<Int>(Channel.CONFLATED) { droppedCount++ }
@@ -57,6 +59,8 @@ class FrameChannelTest {
         // 소비 전: 1, 2가 드롭됨
         assertEquals(2, droppedCount)
 
+        // Note: close() does not trigger onUndeliveredElement for the retained element (3).
+        // cancel() would. This test verifies drop-on-overwrite behavior only.
         channel.close()
     }
 }
