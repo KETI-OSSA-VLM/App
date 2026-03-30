@@ -982,11 +982,17 @@ class MainActivity : AppCompatActivity() {
                                     }
                                 }
                             ) { bitmap ->
-                                // ImageView에는 원본 bitmap 표시
-                                withContext(Dispatchers.Main) { imageView.setImageBitmap(bitmap) }
+                                // 카메라가 옆으로 장착되어 있어 반시계 90도 회전
+                                val rotated = rotateBitmap(bitmap, -90f)
+                                // ImageView에는 회전된 bitmap 표시
+                                withContext(Dispatchers.Main) { imageView.setImageBitmap(rotated) }
                                 // 추론 코루틴에는 copy 전송 (소유권 분리, recycle 충돌 방지)
                                 // ARGB_8888로 강제 변환: hardware-backed bitmap(API 26+) copy 오류 방지
-                                val copy = bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: return@extract
+                                val copy = rotated.copy(Bitmap.Config.ARGB_8888, false) ?: run {
+                                    rotated.recycle()
+                                    return@extract
+                                }
+                                rotated.recycle()
                                 frameChannel.send(copy)  // CONFLATED: 항상 비블로킹
                             }
                         } finally {
@@ -1038,6 +1044,11 @@ class MainActivity : AppCompatActivity() {
                 append(runner.tierDistribution())
             }
         }
+    }
+
+    private fun rotateBitmap(bitmap: Bitmap, degrees: Float): Bitmap {
+        val matrix = android.graphics.Matrix().apply { postRotate(degrees) }
+        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
 
     private fun formatVideoTime(ms: Long): String {
