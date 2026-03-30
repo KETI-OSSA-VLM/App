@@ -955,7 +955,7 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     // 추론 코루틴: 채널에서 최신 프레임 받아 processFrame()
-                    // frameChannel.close() 시 for 루프 자동 종료
+                    // frameChannel.cancel() 시 for 루프 자동 종료
                     launch(Dispatchers.Default) {
                         for (frame in frameChannel) {
                             // try/finally로 cancel 시에도 frame.recycle() 보장
