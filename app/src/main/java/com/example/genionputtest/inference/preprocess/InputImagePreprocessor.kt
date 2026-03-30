@@ -12,7 +12,7 @@ class InputImagePreprocessor {
     fun preprocess(bitmap: Bitmap, modelSpec: ModelSpec): PreprocessResult {
         val scaled = Bitmap.createScaledBitmap(bitmap, modelSpec.inputWidth, modelSpec.inputHeight, true)
         val readableBitmap = if (scaled.config == Bitmap.Config.HARDWARE) {
-            scaled.copy(Bitmap.Config.ARGB_8888, false)
+            scaled.copy(Bitmap.Config.ARGB_8888, false).also { scaled.recycle() }
         } else {
             scaled
         }
@@ -26,6 +26,7 @@ class InputImagePreprocessor {
             modelSpec.inputWidth,
             modelSpec.inputHeight
         )
+        if (readableBitmap !== bitmap) readableBitmap.recycle()
 
         val input = ByteBuffer.allocateDirect(
             expectedInputByteSize(

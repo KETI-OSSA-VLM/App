@@ -11,7 +11,9 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.lifecycle.LifecycleOwner
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 
 import java.util.concurrent.Executors
 
@@ -37,6 +39,7 @@ class VideoFileFrameExtractor(
             val endUs = durationMs * 1000L
             val stepUs = intervalMs * 1000L
             while (timeUs <= endUs) {
+                coroutineContext.ensureActive()
                 val bitmap = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
                 if (bitmap != null) {
                     callback.onFrame(bitmap)

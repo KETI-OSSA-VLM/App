@@ -57,6 +57,7 @@ import com.example.genionputtest.inference.spec.ModelSpec
 import com.example.genionputtest.inference.spec.OutputKind
 import com.example.genionputtest.inference.spec.SmolVlm2Spec
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -131,7 +132,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var imageView: ImageView
     private lateinit var pickImageButton: Button
     private lateinit var pickVideoButton: Button
+    private lateinit var cancelVideoButton: Button
     private lateinit var startStopCameraButton: Button
+    private var videoJob: Job? = null
     private lateinit var previewView: PreviewView
     private lateinit var modelSpinner: Spinner
     private lateinit var promptInput: EditText
@@ -261,6 +264,22 @@ class MainActivity : AppCompatActivity() {
             ).apply { bottomMargin = dp(8) }
         }
 
+        cancelVideoButton = Button(this).apply {
+            text = "Cancel video"
+            setAllCaps(false)
+            textSize = 16f
+            setPadding(dp(18), dp(14), dp(18), dp(14))
+            setOnClickListener {
+                videoJob?.cancel()
+                videoJob = null
+            }
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+        }
+
         startStopCameraButton = Button(this).apply {
             text = "Start camera"
             setAllCaps(false)
@@ -323,6 +342,7 @@ class MainActivity : AppCompatActivity() {
         actionCard.addView(promptInput)
         actionCard.addView(pickImageButton)
         actionCard.addView(pickVideoButton)
+        actionCard.addView(cancelVideoButton)
         actionCard.addView(startStopCameraButton)
         actionCard.addView(previewView)
         container.addView(actionCard, createCardLayoutParams(bottomMargin = cardSpacing))
@@ -423,7 +443,6 @@ class MainActivity : AppCompatActivity() {
                         engine = engine,
                         prompt = promptInput.text.toString().trim().ifBlank { defaultFastVlmPrompt() }
                     )
-                    benchmarkView.text = benchmarkPlaceholderFor(modelSpec)
                     appendStatus("SmolVLM2 ready (llama.cpp): $modelPath")
                     appendStatus("Pick an image and run the prompt.")
                     return@launch
@@ -441,7 +460,6 @@ class MainActivity : AppCompatActivity() {
                         engine.initialize()
                     }
                     fastVlmEngine = engine
-                    benchmarkView.text = benchmarkPlaceholderFor(modelSpec)
                     appendStatus("Model runtime ready: $modelPath")
                     appendStatus("Pick an image or run the prompt without an image.")
                     return@launch
@@ -842,13 +860,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun appendStatus(message: String) {
-        statusView.text = buildString {
-            val current = statusView.text.toString()
-            if (current.isNotEmpty()) {
-                append(current)
-                append('\n')
-            }
-            append(message)
+        runOnUiThread {
+            val lines = statusView.text.toString()
+                .lines()
+                .filter { it.isNotEmpty() }
+                .takeLast(49)
+                .toMutableList()
+            lines.add(message)
+            statusView.text = lines.joinToString("\n")
         }
     }
 
@@ -902,8 +921,9 @@ class MainActivity : AppCompatActivity() {
             appendStatus("Load SmolVLM2 first.")
             return
         }
-        lifecycleScope.launch {
+        videoJob = lifecycleScope.launch {
             setInteractionEnabled(false)
+            cancelVideoButton.visibility = View.VISIBLE
             runner.resetStats()
             try {
                 appendStatus("Starting video inference...")
@@ -915,10 +935,16 @@ class MainActivity : AppCompatActivity() {
                 }
                 appendStatus("Video inference complete. ${runner.tierDistribution()}")
             } catch (t: Throwable) {
-                Log.e("GENIO_TEST", "Video inference failed", t)
-                appendStatus("Video inference failed: ${t.message ?: t.javaClass.simpleName}")
+                if (t is kotlinx.coroutines.CancellationException) {
+                    appendStatus("Video inference cancelled.")
+                } else {
+                    Log.e("GENIO_TEST", "Video inference failed", t)
+                    appendStatus("Video inference failed: ${t.message ?: t.javaClass.simpleName}")
+                }
             } finally {
                 setInteractionEnabled(true)
+                cancelVideoButton.visibility = View.GONE
+                videoJob = null
             }
         }
     }
