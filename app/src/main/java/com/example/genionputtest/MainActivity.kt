@@ -984,15 +984,11 @@ class MainActivity : AppCompatActivity() {
                             ) { bitmap ->
                                 // 카메라가 옆으로 장착되어 있어 반시계 90도 회전
                                 val rotated = rotateBitmap(bitmap, -90f)
-                                // ImageView에는 회전된 bitmap 표시
+                                // ImageView에는 회전된 bitmap 표시 (rotated는 recycle 금지 — imageView가 참조 유지)
                                 withContext(Dispatchers.Main) { imageView.setImageBitmap(rotated) }
-                                // 추론 코루틴에는 copy 전송 (소유권 분리, recycle 충돌 방지)
+                                // 추론 코루틴에는 copy 전송 (소유권 분리)
                                 // ARGB_8888로 강제 변환: hardware-backed bitmap(API 26+) copy 오류 방지
-                                val copy = rotated.copy(Bitmap.Config.ARGB_8888, false) ?: run {
-                                    rotated.recycle()
-                                    return@extract
-                                }
-                                rotated.recycle()
+                                val copy = rotated.copy(Bitmap.Config.ARGB_8888, false) ?: return@extract
                                 frameChannel.send(copy)  // CONFLATED: 항상 비블로킹
                             }
                         } finally {
