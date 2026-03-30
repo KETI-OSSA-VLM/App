@@ -949,7 +949,8 @@ class MainActivity : AppCompatActivity() {
                             }
                         } finally {
                             // 추출 완료 or 취소 시 채널 닫기 → 추론 코루틴 for 루프 종료
-                            frameChannel.close()
+                            // cancel() 사용: close()와 달리 버퍼에 남은 bitmap copy도 onUndeliveredElement로 recycle됨
+                            frameChannel.cancel()
                         }
                     }
 

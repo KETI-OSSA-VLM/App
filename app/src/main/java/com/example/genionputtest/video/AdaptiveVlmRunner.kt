@@ -104,6 +104,7 @@ class AdaptiveVlmRunner(
             for (i in stats.indices) {
                 stats[i] = TierStats(0, 0.0)
             }
+            previousFrame?.recycle()
             previousFrame = null
             lastResultText = null
         }
