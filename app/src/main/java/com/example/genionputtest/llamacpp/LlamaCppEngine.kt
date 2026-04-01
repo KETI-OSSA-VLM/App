@@ -11,7 +11,8 @@ class LlamaCppEngine(
     private val mmprojPath: String,
     private val cacheDir: File,
     private val nThreads: Int = 6,
-    private val maxNewTokens: Int = 30
+    private val maxNewTokens: Int = 30,
+    private val maxNewTokensT1: Int = 20   // T1 reuses KV cache — fewer tokens than T2
 ) : AutoCloseable {
 
     private val bridge = LlamaCppBridge()
@@ -43,7 +44,7 @@ class LlamaCppEngine(
         check(loaded) { "LlamaCppEngine is not initialized." }
         return withContext(Dispatchers.Default) {
             val startNs = System.nanoTime()
-            val raw = bridge.generateOnly(maxNewTokens)
+            val raw = bridge.generateOnly(maxNewTokensT1)
             val elapsedMs = (System.nanoTime() - startNs) / 1_000_000.0
             LlamaCppResponse(text = firstSentence(raw), inferenceMs = elapsedMs)
         }
@@ -66,7 +67,7 @@ class LlamaCppEngine(
 
     private fun firstSentence(text: String): String {
         val idx = text.indexOfFirst { it == '.' || it == '!' || it == '?' }
-        return if (idx >= 0) text.substring(0, idx + 1).trim() else text.trim()
+        return if (idx > 0) text.substring(0, idx + 1).trim() else text.trim()
     }
 
     private fun resizeToMax(bitmap: Bitmap, maxSize: Int): Bitmap {

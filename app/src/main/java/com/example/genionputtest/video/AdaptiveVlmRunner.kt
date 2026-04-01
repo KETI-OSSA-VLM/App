@@ -65,13 +65,19 @@ class AdaptiveVlmRunner(
                 }
                 Tier.ONE -> {
                     val response = engine.generateOnly()
-                    if (response.text.startsWith("ERROR:")) {
-                        // Fall back to Tier.TWO
-                        val fallback = engine.generate(bitmap, prompt)
-                        previousFrame?.recycle()
-                        previousFrame = bitmap.copy(Bitmap.Config.ARGB_8888, false)
-                        lastResultText = fallback.text
-                        Pair(fallback.text, Tier.TWO)
+                    val isValid = !response.text.startsWith("ERROR:") && response.text.length >= 5
+                    if (!isValid) {
+                        // Too short or error — reuse cached text without poisoning the cache
+                        val cached = lastResultText
+                        if (cached != null) {
+                            Pair(cached, Tier.ZERO)
+                        } else {
+                            val fallback = engine.generate(bitmap, prompt)
+                            previousFrame?.recycle()
+                            previousFrame = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                            lastResultText = fallback.text
+                            Pair(fallback.text, Tier.TWO)
+                        }
                     } else {
                         lastResultText = response.text
                         Pair(response.text, Tier.ONE)
