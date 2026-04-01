@@ -146,9 +146,7 @@ class MainActivity : AppCompatActivity() {
     private val evalLogger = com.example.genionputtest.video.EvalLogger()
     private lateinit var tierBadgeView: TextView
     private lateinit var latencyChipView: TextView
-    private lateinit var tierT0Bar: View
-    private lateinit var tierT1Bar: View
-    private lateinit var tierT2Bar: View
+    private lateinit var tierBarView: com.example.genionputtest.video.TierBarView
     private lateinit var tierDistLabel: TextView
     private lateinit var previewView: PreviewView
     private lateinit var modelSpinner: Spinner
@@ -444,34 +442,12 @@ class MainActivity : AppCompatActivity() {
             addView(latencyChipView)
         }
 
-        // Tier 분포 바
-        tierT0Bar = View(this).apply {
-            setBackgroundColor(Color.parseColor("#4CAF50"))
-            layoutParams = LinearLayout.LayoutParams(0, dp(10), 0f)
-        }
-        tierT1Bar = View(this).apply {
-            setBackgroundColor(Color.parseColor("#FF9800"))
-            layoutParams = LinearLayout.LayoutParams(0, dp(10), 0f)
-        }
-        tierT2Bar = View(this).apply {
-            setBackgroundColor(Color.parseColor("#F44336"))
-            layoutParams = LinearLayout.LayoutParams(0, dp(10), 0f)
-        }
-        val distBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(5).toFloat()
-                setColor(Color.parseColor("#ECF2F8"))
-            }
-            clipToOutline = true
+        // Tier 분포 바 (커스텀 뷰 — invalidate()만 사용, requestLayout() 없음)
+        tierBarView = com.example.genionputtest.video.TierBarView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 dp(10)
             ).apply { topMargin = dp(4); bottomMargin = dp(4) }
-            addView(tierT0Bar)
-            addView(tierT1Bar)
-            addView(tierT2Bar)
         }
         tierDistLabel = TextView(this).apply {
             text = ""
@@ -490,7 +466,7 @@ class MainActivity : AppCompatActivity() {
             addView(resultSectionDescriptionView)
             addView(badgeRow)
             addView(resultView)
-            addView(distBar)
+            addView(tierBarView)
             addView(tierDistLabel)
         }
         container.addView(resultCard, createCardLayoutParams(bottomMargin = cardSpacing))
@@ -1215,13 +1191,10 @@ class MainActivity : AppCompatActivity() {
             latencyChipView.text = "${"%.0f".format(result.inferenceMs)} ms"
             latencyChipView.visibility = View.VISIBLE
 
-            // Tier 분포 바 업데이트
+            // Tier 분포 바 업데이트 (invalidate()만 — requestLayout() 없음)
             val stats = runner.tierStatsRaw()
             val total = stats.sumOf { it.count }.coerceAtLeast(1)
-            listOf(tierT0Bar, tierT1Bar, tierT2Bar).forEachIndexed { i, bar ->
-                (bar.layoutParams as LinearLayout.LayoutParams).weight = stats[i].count.toFloat() / total
-                bar.requestLayout()
-            }
+            tierBarView.update(stats[0].count, stats[1].count, stats[2].count)
             val pct = stats.map { (it.count * 100 / total) }
             tierDistLabel.text = "T0 ${pct[0]}%  ·  T1 ${pct[1]}%  ·  T2 ${pct[2]}%"
         }
