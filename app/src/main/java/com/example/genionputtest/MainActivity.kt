@@ -368,8 +368,6 @@ class MainActivity : AppCompatActivity() {
         actionCard.addView(pickImageButton)
         actionCard.addView(pickVideoButton)
         actionCard.addView(cancelVideoButton)
-        actionCard.addView(videoProgressBar)
-        actionCard.addView(videoTimeView)
         actionCard.addView(startStopCameraButton)
         actionCard.addView(previewView)
         container.addView(actionCard, createCardLayoutParams(bottomMargin = cardSpacing))
@@ -379,6 +377,8 @@ class MainActivity : AppCompatActivity() {
             description = "The selected frame is shown here before inference."
         )
         previewCard.addView(imageView)
+        previewCard.addView(videoProgressBar)
+        previewCard.addView(videoTimeView)
         container.addView(previewCard, createCardLayoutParams(bottomMargin = cardSpacing))
 
         val resultCard = createCardContainer().apply {
