@@ -389,7 +389,7 @@ class MainActivity : AppCompatActivity() {
             addView(evalModeButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = dp(6) })
             addView(baselineModeButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         })
-        actionCard.addView(startStopCameraButton)
+        // actionCard.addView(startStopCameraButton)  // TODO: camera 기능 미완성, 임시 비활성화
         actionCard.addView(previewView)
         container.addView(actionCard, createCardLayoutParams(bottomMargin = cardSpacing))
 
@@ -1178,8 +1178,8 @@ class MainActivity : AppCompatActivity() {
 
             // Tier 뱃지
             val tierName = when (result.tier) {
-                com.example.genionputtest.video.Tier.ZERO -> "T0  Cache"
-                com.example.genionputtest.video.Tier.ONE  -> "T1  KV Reuse"
+                com.example.genionputtest.video.Tier.ZERO -> "T0  Cached"
+                com.example.genionputtest.video.Tier.ONE  -> "T1  Fast Update"
                 com.example.genionputtest.video.Tier.TWO  -> "T2  Full Inference"
             }
             tierBadgeView.text = tierName

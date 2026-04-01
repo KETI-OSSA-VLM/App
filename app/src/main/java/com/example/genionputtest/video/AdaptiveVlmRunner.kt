@@ -79,6 +79,9 @@ class AdaptiveVlmRunner(
                             Pair(fallback.text, Tier.TWO)
                         }
                     } else {
+                        // T1도 previousFrame 갱신 — 다음 프레임 diff가 최신 기준으로 계산됨
+                        previousFrame?.recycle()
+                        previousFrame = bitmap.copy(Bitmap.Config.ARGB_8888, false)
                         lastResultText = response.text
                         Pair(response.text, Tier.ONE)
                     }
