@@ -144,6 +144,12 @@ class MainActivity : AppCompatActivity() {
     private var evalModeEnabled = false
     private var baselineModeEnabled = false
     private val evalLogger = com.example.genionputtest.video.EvalLogger()
+    private lateinit var tierBadgeView: TextView
+    private lateinit var latencyChipView: TextView
+    private lateinit var tierT0Bar: View
+    private lateinit var tierT1Bar: View
+    private lateinit var tierT2Bar: View
+    private lateinit var tierDistLabel: TextView
     private lateinit var previewView: PreviewView
     private lateinit var modelSpinner: Spinner
     private lateinit var promptInput: EditText
@@ -243,89 +249,60 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        pickImageButton = Button(this).apply {
-            text = "Pick image"
-            setAllCaps(false)
-            textSize = 16f
-            setPadding(dp(18), dp(14), dp(18), dp(14))
-            setOnClickListener {
-                pickImageLauncher.launch("image/*")
-            }
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                bottomMargin = dp(12)
-            }
+        pickImageButton = styledPrimaryButton("Pick image").also {
+            it.setOnClickListener { pickImageLauncher.launch("image/*") }
         }
 
-        pickVideoButton = Button(this).apply {
-            text = "Pick video"
-            setAllCaps(false)
-            textSize = 16f
-            setPadding(dp(18), dp(14), dp(18), dp(14))
-            setOnClickListener {
-                pickVideoLauncher.launch("video/*")
-            }
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(8) }
+        pickVideoButton = styledPrimaryButton("Pick video").also {
+            it.setOnClickListener { pickVideoLauncher.launch("video/*") }
         }
 
-        cancelVideoButton = Button(this).apply {
-            text = "Cancel video"
-            setAllCaps(false)
-            textSize = 16f
-            setPadding(dp(18), dp(14), dp(18), dp(14))
-            setOnClickListener {
-                videoJob?.cancel()
-                videoJob = null
-            }
-            visibility = View.GONE
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(8) }
+        cancelVideoButton = styledSecondaryButton("Cancel video").also {
+            it.setOnClickListener { videoJob?.cancel(); videoJob = null }
+            it.visibility = View.GONE
         }
 
         evalModeButton = Button(this).apply {
-            text = "Eval mode: OFF"
+            text = "Eval: OFF"
             setAllCaps(false)
-            textSize = 14f
-            setPadding(dp(14), dp(10), dp(14), dp(10))
+            textSize = 13f
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            setTextColor(Color.parseColor("#1565C0"))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.TRANSPARENT)
+                setStroke(dp(1), Color.parseColor("#1565C0"))
+            }
             setOnClickListener {
                 evalModeEnabled = !evalModeEnabled
-                text = if (evalModeEnabled) "Eval mode: ON" else "Eval mode: OFF"
-                setBackgroundColor(if (evalModeEnabled) Color.parseColor("#1976D2") else Color.parseColor("#BDBDBD"))
-                setTextColor(if (evalModeEnabled) Color.WHITE else Color.parseColor("#122033"))
+                text = if (evalModeEnabled) "Eval: ON" else "Eval: OFF"
+                val bg = background as GradientDrawable
+                if (evalModeEnabled) { bg.setColor(Color.parseColor("#1565C0")); setTextColor(Color.WHITE) }
+                else { bg.setColor(Color.TRANSPARENT); setTextColor(Color.parseColor("#1565C0")) }
             }
-            setBackgroundColor(Color.parseColor("#BDBDBD"))
-            setTextColor(Color.parseColor("#122033"))
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(4) }
         }
 
         baselineModeButton = Button(this).apply {
-            text = "Baseline mode: OFF"
+            text = "Baseline: OFF"
             setAllCaps(false)
-            textSize = 14f
-            setPadding(dp(14), dp(10), dp(14), dp(10))
+            textSize = 13f
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            setTextColor(Color.parseColor("#B71C1C"))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.TRANSPARENT)
+                setStroke(dp(1), Color.parseColor("#B71C1C"))
+            }
             setOnClickListener {
                 baselineModeEnabled = !baselineModeEnabled
-                text = if (baselineModeEnabled) "Baseline mode: ON (always T2)" else "Baseline mode: OFF"
-                setBackgroundColor(if (baselineModeEnabled) Color.parseColor("#D32F2F") else Color.parseColor("#BDBDBD"))
-                setTextColor(if (baselineModeEnabled) Color.WHITE else Color.parseColor("#122033"))
+                text = if (baselineModeEnabled) "Baseline: ON" else "Baseline: OFF"
+                val bg = background as GradientDrawable
+                if (baselineModeEnabled) { bg.setColor(Color.parseColor("#B71C1C")); setTextColor(Color.WHITE) }
+                else { bg.setColor(Color.TRANSPARENT); setTextColor(Color.parseColor("#B71C1C")) }
                 adaptiveVlmRunner?.baselineMode = baselineModeEnabled
             }
-            setBackgroundColor(Color.parseColor("#BDBDBD"))
-            setTextColor(Color.parseColor("#122033"))
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(8) }
         }
 
         videoProgressBar = android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -349,16 +326,8 @@ class MainActivity : AppCompatActivity() {
             ).apply { bottomMargin = dp(8) }
         }
 
-        startStopCameraButton = Button(this).apply {
-            text = "Start camera"
-            setAllCaps(false)
-            textSize = 16f
-            setPadding(dp(18), dp(14), dp(18), dp(14))
-            setOnClickListener { onStartStopCameraClicked() }
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(8) }
+        startStopCameraButton = styledSecondaryButton("Start camera").also {
+            it.setOnClickListener { onStartStopCameraClicked() }
         }
 
         previewView = PreviewView(this).apply {
@@ -412,8 +381,16 @@ class MainActivity : AppCompatActivity() {
         actionCard.addView(pickImageButton)
         actionCard.addView(pickVideoButton)
         actionCard.addView(cancelVideoButton)
-        actionCard.addView(evalModeButton)
-        actionCard.addView(baselineModeButton)
+        // Eval / Baseline 나란히
+        actionCard.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+            addView(evalModeButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = dp(6) })
+            addView(baselineModeButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        })
         actionCard.addView(startStopCameraButton)
         actionCard.addView(previewView)
         container.addView(actionCard, createCardLayoutParams(bottomMargin = cardSpacing))
@@ -427,12 +404,94 @@ class MainActivity : AppCompatActivity() {
         previewCard.addView(videoTimeView)
         container.addView(previewCard, createCardLayoutParams(bottomMargin = cardSpacing))
 
+        // Tier 뱃지 + 레이턴시 칩 (가로 행)
+        tierBadgeView = TextView(this).apply {
+            text = ""
+            textSize = 12f
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(6).toFloat()
+                setColor(Color.parseColor("#E8F5E9"))
+            }
+            setTextColor(Color.parseColor("#2E7D32"))
+            visibility = View.GONE
+        }
+        latencyChipView = TextView(this).apply {
+            text = ""
+            textSize = 12f
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(6).toFloat()
+                setColor(Color.parseColor("#F5F8FB"))
+            }
+            setTextColor(Color.parseColor("#4B5A67"))
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { leftMargin = dp(8) }
+        }
+        val badgeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) }
+            addView(tierBadgeView)
+            addView(latencyChipView)
+        }
+
+        // Tier 분포 바
+        tierT0Bar = View(this).apply {
+            setBackgroundColor(Color.parseColor("#4CAF50"))
+            layoutParams = LinearLayout.LayoutParams(0, dp(10), 0f)
+        }
+        tierT1Bar = View(this).apply {
+            setBackgroundColor(Color.parseColor("#FF9800"))
+            layoutParams = LinearLayout.LayoutParams(0, dp(10), 0f)
+        }
+        tierT2Bar = View(this).apply {
+            setBackgroundColor(Color.parseColor("#F44336"))
+            layoutParams = LinearLayout.LayoutParams(0, dp(10), 0f)
+        }
+        val distBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(5).toFloat()
+                setColor(Color.parseColor("#ECF2F8"))
+            }
+            clipToOutline = true
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(10)
+            ).apply { topMargin = dp(4); bottomMargin = dp(4) }
+            addView(tierT0Bar)
+            addView(tierT1Bar)
+            addView(tierT2Bar)
+        }
+        tierDistLabel = TextView(this).apply {
+            text = ""
+            textSize = 12f
+            setTextColor(Color.parseColor("#6A7681"))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(6) }
+        }
+
         val resultCard = createCardContainer().apply {
             resultSectionTitleView = createSectionTitle(resultSectionTitleFor(selectedModelSpec.outputKind))
             resultSectionDescriptionView = createSectionDescription(resultSectionDescriptionFor(selectedModelSpec.outputKind))
             addView(resultSectionTitleView)
             addView(resultSectionDescriptionView)
+            addView(badgeRow)
             addView(resultView)
+            addView(distBar)
+            addView(tierDistLabel)
         }
         container.addView(resultCard, createCardLayoutParams(bottomMargin = cardSpacing))
 
@@ -603,6 +662,53 @@ class MainActivity : AppCompatActivity() {
                 setPadding(0, dp(10), 0, 0)
             })
         }
+    }
+
+    private fun tierColor(tier: com.example.genionputtest.video.Tier): Int = when (tier) {
+        com.example.genionputtest.video.Tier.ZERO -> Color.parseColor("#2E7D32")
+        com.example.genionputtest.video.Tier.ONE  -> Color.parseColor("#E65100")
+        com.example.genionputtest.video.Tier.TWO  -> Color.parseColor("#B71C1C")
+    }
+
+    private fun tierBgColor(tier: com.example.genionputtest.video.Tier): Int = when (tier) {
+        com.example.genionputtest.video.Tier.ZERO -> Color.parseColor("#E8F5E9")
+        com.example.genionputtest.video.Tier.ONE  -> Color.parseColor("#FFF3E0")
+        com.example.genionputtest.video.Tier.TWO  -> Color.parseColor("#FFEBEE")
+    }
+
+    private fun styledPrimaryButton(text: String): Button = Button(this).apply {
+        this.text = text
+        setAllCaps(false)
+        textSize = 15f
+        setTextColor(Color.WHITE)
+        setPadding(dp(16), dp(13), dp(16), dp(13))
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(12).toFloat()
+            setColor(Color.parseColor("#1565C0"))
+        }
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(8) }
+    }
+
+    private fun styledSecondaryButton(text: String): Button = Button(this).apply {
+        this.text = text
+        setAllCaps(false)
+        textSize = 14f
+        setTextColor(Color.parseColor("#1565C0"))
+        setPadding(dp(14), dp(10), dp(14), dp(10))
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(10).toFloat()
+            setColor(Color.TRANSPARENT)
+            setStroke(dp(1), Color.parseColor("#1565C0"))
+        }
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(8) }
     }
 
     private fun createFieldLabel(text: String): TextView {
@@ -1091,12 +1197,33 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateAdaptiveResult(result: AdaptiveResult, runner: AdaptiveVlmRunner) {
         runOnUiThread {
-            resultView.text = buildString {
-                append("[Tier ${result.tier.ordinal} | ${"%.0f".format(result.inferenceMs)}ms]\n")
-                append(result.text)
-                append("\n")
-                append(runner.tierDistribution())
+            // 결과 텍스트
+            resultView.text = result.text
+
+            // Tier 뱃지
+            val tierName = when (result.tier) {
+                com.example.genionputtest.video.Tier.ZERO -> "T0  Cache"
+                com.example.genionputtest.video.Tier.ONE  -> "T1  KV Reuse"
+                com.example.genionputtest.video.Tier.TWO  -> "T2  Full Inference"
             }
+            tierBadgeView.text = tierName
+            tierBadgeView.visibility = View.VISIBLE
+            (tierBadgeView.background as GradientDrawable).setColor(tierBgColor(result.tier))
+            tierBadgeView.setTextColor(tierColor(result.tier))
+
+            // 레이턴시 칩
+            latencyChipView.text = "${"%.0f".format(result.inferenceMs)} ms"
+            latencyChipView.visibility = View.VISIBLE
+
+            // Tier 분포 바 업데이트
+            val stats = runner.tierStatsRaw()
+            val total = stats.sumOf { it.count }.coerceAtLeast(1)
+            listOf(tierT0Bar, tierT1Bar, tierT2Bar).forEachIndexed { i, bar ->
+                (bar.layoutParams as LinearLayout.LayoutParams).weight = stats[i].count.toFloat() / total
+                bar.requestLayout()
+            }
+            val pct = stats.map { (it.count * 100 / total) }
+            tierDistLabel.text = "T0 ${pct[0]}%  ·  T1 ${pct[1]}%  ·  T2 ${pct[2]}%"
         }
     }
 

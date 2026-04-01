@@ -99,6 +99,8 @@ class AdaptiveVlmRunner(
         }
     }
 
+    fun tierStatsRaw(): Array<TierStats> = stats.copyOf()
+
     fun tierDistribution(): String {
         val total = stats.sumOf { it.count }
         if (total == 0) return "T0 0% / T1 0% / T2 0%"
