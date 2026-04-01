@@ -8,7 +8,8 @@ import kotlinx.coroutines.sync.withLock
 data class AdaptiveResult(
     val text: String,
     val tier: Tier,
-    val inferenceMs: Double
+    val inferenceMs: Double,
+    val diffScore: Float = 0f
 )
 
 data class TierStats(
@@ -28,6 +29,9 @@ class AdaptiveVlmRunner(
     private val stats = Array(3) { TierStats(0, 0.0) }
     private var lastResultText: String? = null
 
+    /** true 시 diff 무관하게 항상 Tier 2 강제 (Baseline 비교용) */
+    var baselineMode: Boolean = false
+
     suspend fun processFrame(bitmap: Bitmap): AdaptiveResult {
         // Step 1: Compute diff and determine tier
         val prev = previousFrame
@@ -38,11 +42,14 @@ class AdaptiveVlmRunner(
             Pair(diffResult.diffScore, diffResult.tier)
         }
 
+        // Baseline 모드: 항상 Tier 2 강제 (diff는 기록용으로 계산은 유지)
+        val effectiveTierInput = if (baselineMode) Tier.TWO else tier
+
         // Steps 2–5: Lock wraps all JNI calls
         return mutex.withLock {
             val startMs = System.currentTimeMillis()
 
-            val (resultText, effectiveTier) = when (tier) {
+            val (resultText, effectiveTier) = when (effectiveTierInput) {
                 Tier.ZERO -> {
                     val cached = lastResultText
                     if (cached == null) {
@@ -88,7 +95,7 @@ class AdaptiveVlmRunner(
                 totalMs = stats[idx].totalMs + inferenceMs
             )
 
-            AdaptiveResult(resultText, effectiveTier, inferenceMs)
+            AdaptiveResult(resultText, effectiveTier, inferenceMs, diffScore)
         }
     }
 

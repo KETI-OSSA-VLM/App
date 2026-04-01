@@ -135,10 +135,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pickImageButton: Button
     private lateinit var pickVideoButton: Button
     private lateinit var cancelVideoButton: Button
+    private lateinit var evalModeButton: Button
+    private lateinit var baselineModeButton: Button
     private lateinit var videoProgressBar: android.widget.ProgressBar
     private lateinit var videoTimeView: TextView
     private lateinit var startStopCameraButton: Button
     private var videoJob: Job? = null
+    private var evalModeEnabled = false
+    private var baselineModeEnabled = false
+    private val evalLogger = com.example.genionputtest.video.EvalLogger()
     private lateinit var previewView: PreviewView
     private lateinit var modelSpinner: Spinner
     private lateinit var promptInput: EditText
@@ -284,6 +289,45 @@ class MainActivity : AppCompatActivity() {
             ).apply { bottomMargin = dp(8) }
         }
 
+        evalModeButton = Button(this).apply {
+            text = "Eval mode: OFF"
+            setAllCaps(false)
+            textSize = 14f
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            setOnClickListener {
+                evalModeEnabled = !evalModeEnabled
+                text = if (evalModeEnabled) "Eval mode: ON" else "Eval mode: OFF"
+                setBackgroundColor(if (evalModeEnabled) Color.parseColor("#1976D2") else Color.parseColor("#BDBDBD"))
+                setTextColor(if (evalModeEnabled) Color.WHITE else Color.parseColor("#122033"))
+            }
+            setBackgroundColor(Color.parseColor("#BDBDBD"))
+            setTextColor(Color.parseColor("#122033"))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(4) }
+        }
+
+        baselineModeButton = Button(this).apply {
+            text = "Baseline mode: OFF"
+            setAllCaps(false)
+            textSize = 14f
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            setOnClickListener {
+                baselineModeEnabled = !baselineModeEnabled
+                text = if (baselineModeEnabled) "Baseline mode: ON (always T2)" else "Baseline mode: OFF"
+                setBackgroundColor(if (baselineModeEnabled) Color.parseColor("#D32F2F") else Color.parseColor("#BDBDBD"))
+                setTextColor(if (baselineModeEnabled) Color.WHITE else Color.parseColor("#122033"))
+                adaptiveVlmRunner?.baselineMode = baselineModeEnabled
+            }
+            setBackgroundColor(Color.parseColor("#BDBDBD"))
+            setTextColor(Color.parseColor("#122033"))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+        }
+
         videoProgressBar = android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 1000
             progress = 0
@@ -368,6 +412,8 @@ class MainActivity : AppCompatActivity() {
         actionCard.addView(pickImageButton)
         actionCard.addView(pickVideoButton)
         actionCard.addView(cancelVideoButton)
+        actionCard.addView(evalModeButton)
+        actionCard.addView(baselineModeButton)
         actionCard.addView(startStopCameraButton)
         actionCard.addView(previewView)
         container.addView(actionCard, createCardLayoutParams(bottomMargin = cardSpacing))
@@ -469,7 +515,7 @@ class MainActivity : AppCompatActivity() {
                     adaptiveVlmRunner = AdaptiveVlmRunner(
                         engine = engine,
                         prompt = promptInput.text.toString().trim().ifBlank { defaultFastVlmPrompt() }
-                    )
+                    ).also { it.baselineMode = baselineModeEnabled }
                     appendStatus("SmolVLM2 ready (llama.cpp): $modelPath")
                     appendStatus("Pick an image and run the prompt.")
                     return@launch
@@ -956,8 +1002,10 @@ class MainActivity : AppCompatActivity() {
             videoTimeView.visibility = View.VISIBLE
             videoTimeView.text = "0:00 / --:--"
             runner.resetStats()
+            if (evalModeEnabled) evalLogger.clear()
             try {
-                appendStatus("Starting video inference...")
+                val evalLabel = if (baselineModeEnabled) "baseline" else "adaptive"
+                appendStatus("Starting video inference${if (evalModeEnabled) " [EVAL:$evalLabel]" else ""}...")
 
                 // CONFLATED: 추론 중 도착한 프레임은 최신 1개만 유지.
                 // onUndeliveredElement: 채널에서 교체(드롭)된 bitmap copy를 즉시 recycle.
@@ -1005,6 +1053,7 @@ class MainActivity : AppCompatActivity() {
                             // try/finally로 cancel 시에도 frame.recycle() 보장
                             try {
                                 val result = runner.processFrame(frame)
+                                if (evalModeEnabled) evalLogger.record(result)
                                 withContext(Dispatchers.Main) { updateAdaptiveResult(result, runner) }
                             } finally {
                                 frame.recycle()
@@ -1014,6 +1063,15 @@ class MainActivity : AppCompatActivity() {
                 }
                 // coroutineScope: 두 코루틴 모두 완료 후 여기 도달
                 appendStatus("Video inference complete. ${runner.tierDistribution()}")
+                if (evalModeEnabled && !evalLogger.isEmpty) {
+                    val evalLabel = if (baselineModeEnabled) "baseline" else "adaptive"
+                    val file = withContext(Dispatchers.IO) { evalLogger.saveCsv(this@MainActivity, evalLabel) }
+                    if (file != null) {
+                        appendStatus("Eval saved: ${file.name} (${evalLogger.summary()})")
+                    } else {
+                        appendStatus("Eval save failed.")
+                    }
+                }
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) {
                     appendStatus("Video inference cancelled.")
