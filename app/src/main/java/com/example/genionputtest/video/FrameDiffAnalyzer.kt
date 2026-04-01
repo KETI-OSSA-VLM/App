@@ -8,7 +8,7 @@ enum class Tier { ZERO, ONE, TWO }
 data class DiffResult(val diffScore: Float, val tier: Tier)
 
 class FrameDiffAnalyzer(
-    val lowThreshold: Float = 0.08f,   // raised from 0.05 — compression noise → T0 instead of T1
+    val lowThreshold: Float = 0.05f,
     val highThreshold: Float = 0.20f
 ) {
     fun analyze(current: Bitmap, previous: Bitmap): DiffResult {

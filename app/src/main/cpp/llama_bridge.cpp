@@ -15,6 +15,7 @@ static llama_model*   g_model      = nullptr;
 static llama_context* g_ctx        = nullptr;
 static mtmd_context*  g_ctx_vision = nullptr;
 static llama_pos      g_n_past_after_prefill = 0;
+static llama_token    g_first_gen_token = -1;  // first token generated after prefill, for T1 logit restore
 
 extern "C" {
 
@@ -162,12 +163,16 @@ Java_com_example_genionputtest_llamacpp_LlamaCppBridge_generate(
 
     std::string result;
 
+    g_first_gen_token = -1;
     for (int i = 0; i < maxNewTokens; i++) {
         llama_token token = llama_sampler_sample(sampler, g_ctx, -1);
         if (token == eos) {
             LOGI("EOS at token %d", i);
             break;
         }
+
+        // Save the first generated token so generateOnly() can restore logits
+        if (i == 0) g_first_gen_token = token;
 
         char piece[256];
         int32_t len = llama_token_to_piece(vocab, token, piece, sizeof(piece), 0, true);
@@ -222,11 +227,25 @@ Java_com_example_genionputtest_llamacpp_LlamaCppBridge_generateOnly(
     if (g_n_past_after_prefill == 0) {
         return env->NewStringUTF("ERROR: No prefill state available.");
     }
+    if (g_first_gen_token < 0) {
+        return env->NewStringUTF("ERROR: No first-gen token saved.");
+    }
 
-    // Remove tokens generated in the previous generateOnly call,
-    // keeping the image+prompt KV cache intact.
+    // Remove tokens generated since prefill, keeping image+prompt KV cache intact.
     llama_memory_seq_rm(llama_get_memory(g_ctx), 0, g_n_past_after_prefill, INT32_MAX);
     llama_pos n_past = g_n_past_after_prefill;
+
+    // Restore logits to prefill state.
+    // After seq_rm the logit buffer still holds stale values from T2's last decoded token.
+    // Decoding g_first_gen_token refreshes logits to the correct image+prompt context.
+    {
+        llama_batch prime = llama_batch_get_one(&g_first_gen_token, 1);
+        if (llama_decode(g_ctx, prime) != 0) {
+            LOGE("generateOnly: prime decode failed");
+            return env->NewStringUTF("ERROR: prime decode failed.");
+        }
+        n_past++;
+    }
 
     llama_sampler* sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(sampler, llama_sampler_init_penalties(64, 1.1f, 0.0f, 0.0f));
@@ -235,7 +254,14 @@ Java_com_example_genionputtest_llamacpp_LlamaCppBridge_generateOnly(
 
     const llama_vocab* vocab = llama_model_get_vocab(g_model);
     llama_token eos = llama_vocab_eos(vocab);
+
+    // Include the prime token's text as the start of the result
     std::string result;
+    {
+        char piece[256];
+        int32_t len = llama_token_to_piece(vocab, g_first_gen_token, piece, sizeof(piece), 0, true);
+        if (len > 0) result.append(piece, len);
+    }
 
     for (int i = 0; i < maxNewTokens; i++) {
         llama_token token = llama_sampler_sample(sampler, g_ctx, -1);
