@@ -6,6 +6,7 @@
 
 ---
 
+
 ## Overview
 
 Running VLMs on mobile devices is slow. Full inference per frame (~6s) makes real-time video understanding impractical.
@@ -22,6 +23,7 @@ This project proposes a **3-tier adaptive inference system** that dynamically se
 > Tested on the same video. Device: Android with Snapdragon (CPU-only inference).
 
 ---
+
 
 ## How It Works
 
@@ -45,6 +47,7 @@ Each incoming frame is compared to the previous frame using **32×32 Mean Absolu
 | **T1** | 1% ≤ diff < 5% | Skip image encoding, regenerate text from KV cache | ~850ms |
 | **T2** | diff ≥ 5% | Full inference (image encode + text generation) | ~6,400ms |
 
+
 ### T1: KV Cache Reuse
 
 T1 skips the expensive vision encoding step by reusing the image KV cache from the last T2 inference. Only text tokens are regenerated — approximately 7× faster than T2.
@@ -54,6 +57,7 @@ T2:  [Image Encode] → [Prefill] → [Decode]   ~6,400ms
 T1:                   [KV Reuse] → [Decode]    ~850ms
 T0:  ← cached result →                          ~15ms
 ```
+
 
 ### Tier Distribution (Adaptive Mode)
 
@@ -66,6 +70,7 @@ T0:  ← cached result →                          ~15ms
 | T2 | 3% |
 
 ---
+
 
 ## Architecture
 
@@ -91,6 +96,7 @@ MainActivity
 
 ---
 
+
 ## Model
 
 **[SmolVLM2-500M](https://huggingface.co/HuggingFaceTB/SmolVLM2-500M-Video-Instruct)** (GGUF, Q4 quantized)
@@ -100,7 +106,9 @@ MainActivity
 
 ---
 
+
 ## Getting Started
+
 
 ### Prerequisites
 
@@ -108,12 +116,14 @@ MainActivity
 - Android device with API 28+ (arm64-v8a)
 - WSL (Ubuntu) + [Android NDK r27c](https://developer.android.com/ndk/downloads)
 
+
 ### 1. Clone
 
 ```bash
 git clone --recurse-submodules https://github.com/KETI-OSSA-VLM/App.git
 cd accv
 ```
+
 
 ### 2. Download Models
 
@@ -124,6 +134,7 @@ smolvlm2-500m.gguf
 mmproj-smolvlm2-500m.gguf
 ```
 
+
 ### 3. Build Native Library
 
 ```bash
@@ -133,11 +144,13 @@ wsl -d Ubuntu bash /mnt/c/android/accv/build_accv_llama.sh
 
 This compiles `llama_bridge.cpp` into `libaccv_llama.so` using NDK r27c.
 
+
 ### 4. Run
 
 Open the project in Android Studio and press **Run**.
 
 ---
+
 
 ## Evaluation
 
@@ -156,6 +169,7 @@ Enable **Baseline Mode** to force T2 on every frame for comparison.
 
 ---
 
+
 ## Related Work
 
 | Work | Venue | Key Idea |
@@ -170,6 +184,7 @@ Enable **Baseline Mode** to force T2 on every frame for comparison.
 
 ---
 
+
 ## Limitations
 
 - **T1 describes the previous frame's scene**, not the current one — image encoding is skipped entirely. Partial KV cache update (model-level) is a direction for future work.
@@ -177,6 +192,7 @@ Enable **Baseline Mode** to force T2 on every frame for comparison.
 - **Cancel during T2** waits for the JNI call to complete (~6.4s max delay).
 
 ---
+
 
 ## Citation
 
@@ -192,6 +208,7 @@ If you find this work useful, please cite:
 ```
 
 ---
+
 
 ## Acknowledgements
 
