@@ -33,8 +33,7 @@ class LlamaCppEngine(
             val startNs = System.nanoTime()
             val raw = bridge.generate(imageFile.absolutePath, prompt, maxNewTokens)
             val elapsedMs = (System.nanoTime() - startNs) / 1_000_000.0
-            val text = firstSentence(raw)
-            LlamaCppResponse(text = text, inferenceMs = elapsedMs)
+            LlamaCppResponse(text = firstSentence(raw), inferenceMs = elapsedMs)
         }
     }
 

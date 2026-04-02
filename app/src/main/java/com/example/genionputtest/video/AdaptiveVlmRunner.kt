@@ -70,7 +70,6 @@ class AdaptiveVlmRunner(
                     val response = engine.generateOnly()
                     val isValid = !response.text.startsWith("ERROR:") && response.text.length >= 5
                     if (!isValid) {
-                        // Too short or error — reuse cached text without poisoning the cache
                         val cached = lastResultText
                         if (cached != null) {
                             Pair(cached, Tier.ZERO)
@@ -82,7 +81,6 @@ class AdaptiveVlmRunner(
                             Pair(fallback.text, Tier.TWO)
                         }
                     } else {
-                        // T1도 previousFrame 갱신 — 다음 프레임 diff가 최신 기준으로 계산됨
                         previousFrame?.recycle()
                         previousFrame = bitmap.copy(Bitmap.Config.ARGB_8888, false)
                         lastResultText = response.text
