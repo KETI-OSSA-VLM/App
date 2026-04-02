@@ -1,7 +1,7 @@
-# 적응형 KV 캐시 재사용 기반 Android 온디바이스 영상 VLM 시스템
+# Adaptive KV Cache Reuse for On-device Video VLM on Android
 
-> Adaptive KV Cache Reuse for On-device Video VLM on Android
-
+> 적응형 KV 캐시 재사용 기반 안드로이드 온디바이스 영상 VLM 시스템
+> 
 <!-- 데모 GIF -->
 
 ---
