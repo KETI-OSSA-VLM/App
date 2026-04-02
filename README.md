@@ -1,4 +1,4 @@
-# Adaptive Video Inference for On-Device VLM on Android
+# Android On-Device Video VLM System Based on Adaptive KV Cache Reuse
 
 > Real-time streaming Vision Language Model inference on Android via frame difference-guided adaptive KV cache reuse.
 
@@ -184,7 +184,7 @@ If you find this work useful, please cite:
 
 ```bibtex
 @article{accv2026adaptive,
-  title   = {Adaptive KV Cache Reuse for Real-Time Vision Language Model Inference on Android},
+  title   = {Android On-Device Video VLM System Based on Adaptive KV Cache Reuse},
   author  = {Sooin Jung},
   journal = {IEMEK},
   year    = {2026}
