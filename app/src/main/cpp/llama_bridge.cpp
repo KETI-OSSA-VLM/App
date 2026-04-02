@@ -114,7 +114,11 @@ Java_com_example_genionputtest_llamacpp_LlamaCppBridge_generate(
 
     // Build prompt with image marker
     std::string marker(mtmd_default_marker());
-    std::string prompt_str = "<|im_start|>user\n" + marker + "\n" + prompt + "<|im_end|>\n<|im_start|>assistant\n";
+    std::string prompt_str =
+        "<|im_start|>system\n"
+        "Describe only what you can directly observe in the image. Be concise and accurate. Do not imagine or guess details not visible.\n"
+        "<|im_end|>\n"
+        "<|im_start|>user\n" + marker + "\n" + prompt + "<|im_end|>\n<|im_start|>assistant\n";
     LOGI("Prompt: %s", prompt_str.c_str());
 
     // Tokenize text + image
@@ -152,10 +156,11 @@ Java_com_example_genionputtest_llamacpp_LlamaCppBridge_generate(
     g_n_past_after_prefill = n_past;
     LOGI("Eval OK. n_past=%d. Saved g_n_past_after_prefill=%d. Starting generation...", (int)n_past, (int)g_n_past_after_prefill);
 
-    // Sampler: temp + repetition penalty to avoid looping
+    // Sampler: min-p filters low-probability tokens, higher penalty reduces repetition/drift
     llama_sampler* sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
-    llama_sampler_chain_add(sampler, llama_sampler_init_penalties(64, 1.1f, 0.0f, 0.0f));
-    llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.3f));
+    llama_sampler_chain_add(sampler, llama_sampler_init_penalties(64, 1.2f, 0.0f, 0.0f));
+    llama_sampler_chain_add(sampler, llama_sampler_init_min_p(0.05f, 1));
+    llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.2f));
     llama_sampler_chain_add(sampler, llama_sampler_init_dist(0));
 
     const llama_vocab* vocab = llama_model_get_vocab(g_model);
@@ -248,8 +253,9 @@ Java_com_example_genionputtest_llamacpp_LlamaCppBridge_generateOnly(
     }
 
     llama_sampler* sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
-    llama_sampler_chain_add(sampler, llama_sampler_init_penalties(64, 1.1f, 0.0f, 0.0f));
-    llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.3f));
+    llama_sampler_chain_add(sampler, llama_sampler_init_penalties(64, 1.2f, 0.0f, 0.0f));
+    llama_sampler_chain_add(sampler, llama_sampler_init_min_p(0.05f, 1));
+    llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.2f));
     llama_sampler_chain_add(sampler, llama_sampler_init_dist(0));
 
     const llama_vocab* vocab = llama_model_get_vocab(g_model);

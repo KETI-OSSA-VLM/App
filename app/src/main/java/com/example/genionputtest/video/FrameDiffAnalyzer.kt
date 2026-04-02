@@ -8,8 +8,8 @@ enum class Tier { ZERO, ONE, TWO }
 data class DiffResult(val diffScore: Float, val tier: Tier)
 
 class FrameDiffAnalyzer(
-    val lowThreshold: Float = 0.05f,
-    val highThreshold: Float = 0.20f
+    val lowThreshold: Float = 0.01f,
+    val highThreshold: Float = 0.05f
 ) {
     fun analyze(current: Bitmap, previous: Bitmap): DiffResult {
         // Scale both bitmaps to 32×32

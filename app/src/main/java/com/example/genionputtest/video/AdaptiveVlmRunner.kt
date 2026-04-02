@@ -60,6 +60,9 @@ class AdaptiveVlmRunner(
                         lastResultText = response.text
                         Pair(response.text, Tier.TWO)
                     } else {
+                        // Slide window: always compare against last frame, not last inference frame
+                        previousFrame?.recycle()
+                        previousFrame = bitmap.copy(Bitmap.Config.ARGB_8888, false)
                         Pair(cached, Tier.ZERO)
                     }
                 }
