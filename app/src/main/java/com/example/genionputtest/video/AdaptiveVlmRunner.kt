@@ -35,12 +35,13 @@ class AdaptiveVlmRunner(
     suspend fun processFrame(bitmap: Bitmap): AdaptiveResult {
         // Step 1: Compute diff and determine tier
         val prev = previousFrame
-        val (diffScore, tier) = if (prev == null) {
-            Pair(1.0f, Tier.TWO)
+        val diffResult = if (prev == null) {
+            DiffResult(1.0f, Tier.TWO)
         } else {
-            val diffResult = diffAnalyzer.analyze(bitmap, prev)
-            Pair(diffResult.diffScore, diffResult.tier)
+            diffAnalyzer.analyze(bitmap, prev)
         }
+        val diffScore = diffResult.diffScore
+        val tier = diffResult.tier
 
         // Baseline 모드: 항상 Tier 2 강제 (diff는 기록용으로 계산은 유지)
         val effectiveTierInput = if (baselineMode) Tier.TWO else tier
@@ -67,7 +68,7 @@ class AdaptiveVlmRunner(
                     }
                 }
                 Tier.ONE -> {
-                    val response = engine.generateOnly()
+                    val response = engine.generateOnly(diffResult.hintText)
                     val isValid = !response.text.startsWith("ERROR:") && response.text.length >= 5
                     if (!isValid) {
                         val cached = lastResultText
