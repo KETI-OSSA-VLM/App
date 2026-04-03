@@ -224,7 +224,8 @@ JNIEXPORT jstring JNICALL
 Java_com_example_genionputtest_llamacpp_LlamaCppBridge_generateOnly(
         JNIEnv* env,
         jobject,
-        jint maxNewTokens
+        jint maxNewTokens,
+        jstring hintJ
 ) {
     if (!g_model || !g_ctx || !g_ctx_vision) {
         return env->NewStringUTF("ERROR: Model not loaded.");
@@ -236,21 +237,15 @@ Java_com_example_genionputtest_llamacpp_LlamaCppBridge_generateOnly(
         return env->NewStringUTF("ERROR: No first-gen token saved.");
     }
 
+    const char* hint_cstr = env->GetStringUTFChars(hintJ, nullptr);
+    std::string hint(hint_cstr);
+    env->ReleaseStringUTFChars(hintJ, hint_cstr);
+
     // Remove tokens generated since prefill, keeping image+prompt KV cache intact.
     llama_memory_seq_rm(llama_get_memory(g_ctx), 0, g_n_past_after_prefill, INT32_MAX);
     llama_pos n_past = g_n_past_after_prefill;
 
-    // Restore logits to prefill state.
-    // After seq_rm the logit buffer still holds stale values from T2's last decoded token.
-    // Decoding g_first_gen_token refreshes logits to the correct image+prompt context.
-    {
-        llama_batch prime = llama_batch_get_one(&g_first_gen_token, 1);
-        if (llama_decode(g_ctx, prime) != 0) {
-            LOGE("generateOnly: prime decode failed");
-            return env->NewStringUTF("ERROR: prime decode failed.");
-        }
-        n_past++;
-    }
+    const llama_vocab* vocab = llama_model_get_vocab(g_model);
 
     llama_sampler* sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(sampler, llama_sampler_init_penalties(64, 1.2f, 0.0f, 0.0f));
@@ -258,17 +253,63 @@ Java_com_example_genionputtest_llamacpp_LlamaCppBridge_generateOnly(
     llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.2f));
     llama_sampler_chain_add(sampler, llama_sampler_init_dist(0));
 
-    const llama_vocab* vocab = llama_model_get_vocab(g_model);
     llama_token eos = llama_vocab_eos(vocab);
-
-    // Include the prime token's text as the start of the result
     std::string result;
-    {
+
+    if (!hint.empty()) {
+        // Hint path: tokenize hint and decode into KV cache (replaces prime decode)
+        LOGI("generateOnly: hint='%s'", hint.c_str());
+        std::vector<llama_token> hint_tokens(hint.size() + 16);
+        int32_t n_hint = llama_tokenize(
+            vocab, hint.c_str(), (int32_t)hint.size(),
+            hint_tokens.data(), (int32_t)hint_tokens.size(),
+            /*add_special=*/false, /*parse_special=*/false
+        );
+        if (n_hint > 0) {
+            hint_tokens.resize(n_hint);
+            llama_batch hint_batch = llama_batch_get_one(hint_tokens.data(), n_hint);
+            if (llama_decode(g_ctx, hint_batch) != 0) {
+                LOGE("generateOnly: hint decode failed — falling back to prime decode");
+                llama_batch prime = llama_batch_get_one(&g_first_gen_token, 1);
+                if (llama_decode(g_ctx, prime) != 0) {
+                    llama_sampler_free(sampler);
+                    return env->NewStringUTF("ERROR: prime decode failed.");
+                }
+                n_past++;
+                char piece[256];
+                int32_t len = llama_token_to_piece(vocab, g_first_gen_token, piece, sizeof(piece), 0, true);
+                if (len > 0) result.append(piece, len);
+            } else {
+                n_past += n_hint;
+                LOGI("generateOnly: hint decoded OK, n_past=%d", (int)n_past);
+            }
+        } else {
+            LOGE("generateOnly: hint tokenize failed, using prime decode");
+            llama_batch prime = llama_batch_get_one(&g_first_gen_token, 1);
+            if (llama_decode(g_ctx, prime) != 0) {
+                llama_sampler_free(sampler);
+                return env->NewStringUTF("ERROR: prime decode failed.");
+            }
+            n_past++;
+            char piece[256];
+            int32_t len = llama_token_to_piece(vocab, g_first_gen_token, piece, sizeof(piece), 0, true);
+            if (len > 0) result.append(piece, len);
+        }
+    } else {
+        // No hint: original prime decode path
+        llama_batch prime = llama_batch_get_one(&g_first_gen_token, 1);
+        if (llama_decode(g_ctx, prime) != 0) {
+            LOGE("generateOnly: prime decode failed");
+            llama_sampler_free(sampler);
+            return env->NewStringUTF("ERROR: prime decode failed.");
+        }
+        n_past++;
         char piece[256];
         int32_t len = llama_token_to_piece(vocab, g_first_gen_token, piece, sizeof(piece), 0, true);
         if (len > 0) result.append(piece, len);
     }
 
+    // Decoding loop
     for (int i = 0; i < maxNewTokens; i++) {
         llama_token token = llama_sampler_sample(sampler, g_ctx, -1);
         if (token == eos) {
@@ -298,7 +339,7 @@ Java_com_example_genionputtest_llamacpp_LlamaCppBridge_generateOnly(
     }
 
     llama_sampler_free(sampler);
-    LOGI("generateOnly done. result: %s", result.c_str());
+    LOGI("generateOnly done. hint='%s' result='%s'", hint.c_str(), result.c_str());
     return env->NewStringUTF(result.c_str());
 }
 
