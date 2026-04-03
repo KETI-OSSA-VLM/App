@@ -8,8 +8,8 @@ enum class Tier { ZERO, ONE, TWO }
 data class DiffResult(val diffScore: Float, val tier: Tier, val hintText: String = "")
 
 class FrameDiffAnalyzer(
-    val lowThreshold: Float = 0.01f,
-    val highThreshold: Float = 0.05f
+    private val lowThreshold: Float = 0.01f,
+    private val highThreshold: Float = 0.05f
 ) {
     fun analyze(current: Bitmap, previous: Bitmap): DiffResult {
         // Scale both bitmaps to 32×32
@@ -31,32 +31,34 @@ class FrameDiffAnalyzer(
         var sumDiff = 0f
         val quadrantSums = FloatArray(4)
 
-        for (i in 0 until pixelCount) {
-            val x = i % 32
-            val y = i / 32
+        for (y in 0 until 32) {
+            val yOffset = y * 32
+            for (x in 0 until 32) {
+                val i = yOffset + x
 
-            val currPixel = currentPixels[i]
-            val prevPixel = previousPixels[i]
+                val currPixel = currentPixels[i]
+                val prevPixel = previousPixels[i]
 
-            // Extract R, G, B channels
-            val currR = Color.red(currPixel).toFloat()
-            val currG = Color.green(currPixel).toFloat()
-            val currB = Color.blue(currPixel).toFloat()
+                // Extract R, G, B channels
+                val currR = Color.red(currPixel).toFloat()
+                val currG = Color.green(currPixel).toFloat()
+                val currB = Color.blue(currPixel).toFloat()
 
-            val prevR = Color.red(prevPixel).toFloat()
-            val prevG = Color.green(prevPixel).toFloat()
-            val prevB = Color.blue(prevPixel).toFloat()
+                val prevR = Color.red(prevPixel).toFloat()
+                val prevG = Color.green(prevPixel).toFloat()
+                val prevB = Color.blue(prevPixel).toFloat()
 
-            // Sum absolute differences
-            val pixelDiff = kotlin.math.abs(currR - prevR) +
-                            kotlin.math.abs(currG - prevG) +
-                            kotlin.math.abs(currB - prevB)
+                // Sum absolute differences
+                val pixelDiff = kotlin.math.abs(currR - prevR) +
+                                kotlin.math.abs(currG - prevG) +
+                                kotlin.math.abs(currB - prevB)
 
-            sumDiff += pixelDiff
+                sumDiff += pixelDiff
 
-            // Quadrant mapping: 0=top-left, 1=top-right, 2=bot-left, 3=bot-right
-            val q = (if (y >= 16) 2 else 0) + (if (x >= 16) 1 else 0)
-            quadrantSums[q] += pixelDiff
+                // Quadrant mapping: 0=top-left, 1=top-right, 2=bot-left, 3=bot-right
+                val q = (if (y >= 16) 2 else 0) + (if (x >= 16) 1 else 0)
+                quadrantSums[q] += pixelDiff
+            }
         }
 
         // Normalize: MAD = sum / (pixels * 3 * 255.0)
@@ -83,8 +85,8 @@ class FrameDiffAnalyzer(
         val intensity = if (overallMad < 0.025f) "slight" else "moderate"
 
         // Uniform check: if max - min < overallMad * 0.5 → overall change
-        val maxQ = quadrantMad.max()
-        val minQ = quadrantMad.min()
+        val maxQ = quadrantMad.maxOrNull()!!
+        val minQ = quadrantMad.minOrNull()!!
         if (maxQ - minQ < overallMad * 0.5f) {
             return "[Hint: $intensity overall change detected]"
         }
