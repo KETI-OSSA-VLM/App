@@ -5,7 +5,7 @@ import android.graphics.Color
 
 enum class Tier { ZERO, ONE, TWO }
 
-data class DiffResult(val diffScore: Float, val tier: Tier)
+data class DiffResult(val diffScore: Float, val tier: Tier, val hintText: String = "")
 
 class FrameDiffAnalyzer(
     val lowThreshold: Float = 0.01f,
@@ -27,10 +27,14 @@ class FrameDiffAnalyzer(
         scaledCurrent.recycle()
         scaledPrevious.recycle()
 
-        // Compute MAD (Mean Absolute Difference)
+        // Compute MAD (Mean Absolute Difference) + per-quadrant sums in a single loop
         var sumDiff = 0f
+        val quadrantSums = FloatArray(4)
 
         for (i in 0 until pixelCount) {
+            val x = i % 32
+            val y = i / 32
+
             val currPixel = currentPixels[i]
             val prevPixel = previousPixels[i]
 
@@ -44,13 +48,22 @@ class FrameDiffAnalyzer(
             val prevB = Color.blue(prevPixel).toFloat()
 
             // Sum absolute differences
-            sumDiff += kotlin.math.abs(currR - prevR)
-            sumDiff += kotlin.math.abs(currG - prevG)
-            sumDiff += kotlin.math.abs(currB - prevB)
+            val pixelDiff = kotlin.math.abs(currR - prevR) +
+                            kotlin.math.abs(currG - prevG) +
+                            kotlin.math.abs(currB - prevB)
+
+            sumDiff += pixelDiff
+
+            // Quadrant mapping: 0=top-left, 1=top-right, 2=bot-left, 3=bot-right
+            val q = (if (y >= 16) 2 else 0) + (if (x >= 16) 1 else 0)
+            quadrantSums[q] += pixelDiff
         }
 
         // Normalize: MAD = sum / (pixels * 3 * 255.0)
         val diffScore = sumDiff / (pixelCount * 3 * 255.0f)
+
+        // Each quadrant is 16×16 = 256 pixels
+        val quadrantMad = FloatArray(4) { q -> quadrantSums[q] / (256 * 3 * 255.0f) }
 
         // Decide tier based on thresholds
         val tier = when {
@@ -59,6 +72,38 @@ class FrameDiffAnalyzer(
             else -> Tier.TWO
         }
 
-        return DiffResult(diffScore, tier)
+        val hintText = buildHint(diffScore, quadrantMad, tier)
+
+        return DiffResult(diffScore, tier, hintText)
+    }
+
+    internal fun buildHint(overallMad: Float, quadrantMad: FloatArray, tier: Tier): String {
+        if (tier != Tier.ONE) return ""
+
+        val intensity = if (overallMad < 0.025f) "slight" else "moderate"
+
+        // Uniform check: if max - min < overallMad * 0.5 → overall change
+        val maxQ = quadrantMad.max()
+        val minQ = quadrantMad.min()
+        if (maxQ - minQ < overallMad * 0.5f) {
+            return "[Hint: $intensity overall change detected]"
+        }
+
+        // Find quadrants above average, take top 2 by value
+        val labels = listOf("top-left", "top-right", "bot-left", "bot-right")
+        val average = quadrantMad.average().toFloat()
+
+        val active = quadrantMad
+            .mapIndexed { index, mad -> Pair(index, mad) }
+            .filter { (_, mad) -> mad > average }
+            .sortedByDescending { (_, mad) -> mad }
+            .take(2)
+            .map { (index, _) -> labels[index] }
+
+        return if (active.isEmpty()) {
+            "[Hint: $intensity overall change detected]"
+        } else {
+            "[Hint: $intensity movement detected in ${active.joinToString(" and ")}]"
+        }
     }
 }
