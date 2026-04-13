@@ -22,3 +22,5 @@ tools/mobileclip2/.venv/
 tools/mobileclip2/vendor/
 tools/mobileclip2/artifacts/*
 !tools/mobileclip2/artifacts/README.md
+downloads/
+tmp/build_log.txt
