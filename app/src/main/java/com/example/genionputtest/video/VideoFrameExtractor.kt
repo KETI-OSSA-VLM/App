@@ -27,7 +27,7 @@ fun interface SuspendFrameCallback {
 
 class VideoFileFrameExtractor(
     private val context: Context,
-    private val intervalMs: Long = 100L
+    private val intervalMs: Long = 500L
 ) {
     suspend fun extract(
         uri: Uri,

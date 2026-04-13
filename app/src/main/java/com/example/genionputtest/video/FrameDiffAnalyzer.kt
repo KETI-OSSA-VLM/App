@@ -8,7 +8,7 @@ enum class Tier { ZERO, ONE, TWO }
 data class DiffResult(val diffScore: Float, val tier: Tier, val hintText: String = "")
 
 class FrameDiffAnalyzer(
-    private val lowThreshold: Float = 0.01f,
+    private val lowThreshold: Float = 0.02f,
     private val highThreshold: Float = 0.05f
 ) {
     fun analyze(current: Bitmap, previous: Bitmap): DiffResult {

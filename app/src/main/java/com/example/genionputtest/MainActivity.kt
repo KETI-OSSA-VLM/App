@@ -182,7 +182,7 @@ class MainActivity : AppCompatActivity() {
         runInferenceForSelectedImage(uri)
     }
 
-    private val pickVideoLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    private val pickVideoLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) {
             appendStatus("Video selection canceled.")
             return@registerForActivityResult
@@ -252,7 +252,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         pickVideoButton = styledPrimaryButton("Pick video").also {
-            it.setOnClickListener { pickVideoLauncher.launch("video/*") }
+            it.setOnClickListener { pickVideoLauncher.launch(arrayOf("video/*")) }
         }
 
         cancelVideoButton = styledSecondaryButton("Cancel video").also {

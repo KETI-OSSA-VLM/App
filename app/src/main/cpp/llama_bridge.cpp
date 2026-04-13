@@ -116,7 +116,7 @@ Java_com_example_genionputtest_llamacpp_LlamaCppBridge_generate(
     std::string marker(mtmd_default_marker());
     std::string prompt_str =
         "<|im_start|>system\n"
-        "Describe only what you can directly observe in the image. Be concise and accurate. Do not imagine or guess details not visible.\n"
+        "You are analyzing a CCTV surveillance scene. Focus on people and their actions: what they are doing, how they are moving, and any notable events. Only describe what is clearly visible. Be concise.\n"
         "<|im_end|>\n"
         "<|im_start|>user\n" + marker + "\n" + prompt + "<|im_end|>\n<|im_start|>assistant\n";
     LOGI("Prompt: %s", prompt_str.c_str());
